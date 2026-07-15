@@ -1,11 +1,5 @@
-import { getToken } from "@vercel/connect";
-import { createGithubTools } from "@github-tools/sdk/eve";
+import { connectGithubTools } from "@github-tools/sdk/connect/eve";
 
-const token = await getToken("github/docia-gh", {
-    subject: { type: "app" },
-});
-
-export default createGithubTools({
-    token,
+export default connectGithubTools("github/docia-gh", {
     preset: ["repo-explorer"]
 });
