@@ -39,4 +39,8 @@ export default defineMcpClientConnection({
       "search_users",
     ],
   },
+  approval: ctx => {
+    if (ctx.toolName === "github__list_commits") return "user-approval"
+    return "approved";
+  }
 });

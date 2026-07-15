@@ -1,119 +1,104 @@
 # doc-updater
 
-An Eve agent that reviews recent changes in a private GitHub repository, keeps
-human and agent-facing documentation current, and opens a rolling draft pull
-request when documentation needs attention.
+Docia is an Eve agent that reviews recent changes in a GitHub repository and
+reports documentation drift in Slack. It reads repository data through the
+GitHub MCP server using Vercel Connect; it does not edit files, create branches,
+or open pull requests.
 
 ## How it works
 
-Every Monday at 09:00 UTC, the agent:
+Send Docia a repository as an `owner/name` pair or a GitHub URL in a Slack app
+mention or direct message. For each request, the agent:
 
-1. inspects the configured repository and its open doc-updater PR;
-2. starts from the PR's last reviewed commit, or uses the configured seven-day
-   lookback when no rolling PR exists;
-3. reviews recent commits, changed-file patches, and all existing human and
-   agent documentation;
-4. writes documentation-only updates to a dedicated branch; and
-5. creates or updates one draft PR and records the reviewed commit in its body.
+1. reads commits from the previous 24 hours;
+2. reads the repository's human-facing and agent-facing documentation;
+3. compares the recent changes with those docs;
+4. sanity-checks the docs against the current repository when no drift is found;
+5. summarizes any required documentation changes with links to the relevant
+   files; and
+6. replies in Slack with a short headline and a copy-pastable prompt that
+   another agent can use to implement the updates.
 
-The PR body contains a human-readable commit and a machine-readable marker. A
-later run resumes from that marker, reviews only newer commits, and updates the
-same branch while the PR remains open. If no edit is needed, an existing PR's
-marker still advances so the next run does not re-review the same diff.
+The review is advisory. Docia does not maintain review markers or state between
+runs, resume a branch, or manage a rolling draft pull request.
 
 ## Safety boundaries
 
-- GitHub tokens are obtained in the trusted runtime through Vercel Connect and
-  are never passed to the model or sandbox.
-- The repository allowlist is checked before token acquisition or API access.
-- Writes accept documentation paths only and reject duplicate or oversized
-  files.
-- A rolling PR is resumed only when its marker and head repository match the
-  configured repository.
-- The agent refuses to continue a rolling PR containing non-documentation
-  changes.
-- The default shell, filesystem, web, search, and delegation tools are disabled,
-  so the model has no sandbox or arbitrary-network capability.
-- The default branch must remain at the inspected commit until the write begins;
-  otherwise the run stops and retries from fresh evidence next time.
-- Pull requests are always drafts and are never merged automatically.
+- GitHub and Slack credentials are resolved in the trusted runtime through
+  Vercel Connect and are not exposed to the model.
+- GitHub access uses an app-scoped Connect token. Limit the GitHub connector
+  installation to the repositories Docia is permitted to review.
+- The GitHub MCP connection exposes a read-only allowlist of repository,
+  commit, content, issue, pull-request, release, and search tools.
+- The agent is instructed to inspect only the repository supplied in the
+  current request and to treat repository content as untrusted evidence.
+- Shell, filesystem, arbitrary web access, and interactive-question tools are
+  disabled for the model.
+- The agent reports incomplete evidence or failed safety checks instead of
+  guessing.
 
 ## Requirements
 
 - Node.js 24
 - A Vercel project linked to this directory
-- A Vercel Connect GitHub connector installed for
-  `https://github.com/cgillions/doc-updater`
-- Connector permissions for repository metadata, contents read/write, and pull
-  requests read/write
+- A Vercel Connect GitHub connector with the UID `github/docia-gh`
+- A Vercel Connect Slack connector with the UID `slack/docia`
+- Read access for the GitHub connector to every repository Docia may review
+
+The connector UIDs are part of the current runtime configuration in
+`agent/connections/github.ts` and `agent/channels/slack.ts`. Update those files
+if different connector names are required.
 
 ## Configure Vercel Connect
 
-Run Connect commands from this project directory so Vercel can associate the
-connector with the correct project:
+Run the commands from this project directory so the connectors are attached to
+the correct Vercel project:
 
 ```sh
 vercel link
-vercel connect create github
-```
 
-Install the GitHub connector for only the allowlisted repository and grant the
-minimum permissions listed above. Record the connector UID, then configure it
-as `GITHUB_CONNECTOR_ID` in the Vercel project. For local development, pull the
-project environment after linking:
+vercel connect create github --name docia-gh
+vercel connect attach github/docia-gh --yes
 
-```sh
+vercel connect create slack --name docia --triggers
+vercel connect detach slack/docia --yes
+vercel connect attach slack/docia --triggers --trigger-path /eve/v1/slack --yes
+
 vercel env pull
 ```
 
-`GITHUB_CONNECTOR_ID` identifies the connector; it is not the GitHub access
-token. Connect exchanges the Vercel OIDC identity for a short-lived app token at
-runtime.
+The Slack connector must enable triggers and target `/eve/v1/slack` so Eve can
+receive app mentions and direct messages. The GitHub connector is used as an
+app identity for the remote GitHub MCP connection at
+`https://api.githubcopilot.com/mcp/`; no GitHub token environment variable is
+required.
 
-## Configure repositories
-
-Repository scope and review windows live in
-`agent/lib/repositories.ts`. The defaults apply to every entry, and an entry
-may override `lookbackDays` or `baseBranch`:
-
-```ts
-export const repositories: readonly RepositoryConfig[] = [
-  {
-    repository: "cgillions/doc-updater",
-    lookbackDays: 7,
-  },
-];
-```
-
-Keep the Connect installation's repository scope aligned with this allowlist.
-Adding an entry here without granting connector access will fail closed; granting
-connector access without adding an entry here will not make the repository
-available to the agent.
+Install the GitHub connector only for the repositories Docia should inspect and
+grant the minimum read permissions needed for commits, repository contents,
+pull requests, issues, releases, and repository metadata.
 
 ## Develop and verify
 
 ```sh
+npm install
 npm test
 npm run typecheck
 npm run build
 npm run dev
 ```
 
-`eve dev` does not fire cron schedules automatically. Trigger the schedule once
-through Eve's development dispatch route:
-
-```sh
-curl -X POST http://localhost:3000/eve/v1/dev/schedules/documentation-review
-```
-
-The response contains the session ID for inspecting the run stream. The local
-run still needs a linked Vercel project and pulled OIDC environment to access
-Connect.
+Use Eve's local interface to test the agent directly. Testing through Slack
+requires a deployed Vercel project because Connect sends Slack events to the
+configured Eve route.
 
 ## Deploy
 
-Deploy the Eve app to Vercel. Eve compiles
-`agent/schedules/documentation-review.ts` into a Vercel Cron Job using
-`0 9 * * 1`; Vercel evaluates that expression in UTC. Confirm the schedule under
-the project's Cron Jobs settings and inspect runs through Vercel's agent-run and
-function observability.
+Deploy the Eve app to Vercel after both connectors are attached:
+
+```sh
+VERCEL_USE_EXPERIMENTAL_FRAMEWORKS=1 vercel deploy --prod
+```
+
+After deployment, mention Docia in Slack or send it a direct message containing
+an `owner/name` pair or GitHub repository URL. Inspect agent runs and function
+logs through Vercel observability.
