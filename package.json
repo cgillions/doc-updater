@@ -17,7 +17,7 @@
     "@github-tools/sdk": "^1.8.0",
     "@vercel/connect": "^0.3.3",
     "ai": "^7.0.0",
-    "eve": "^0.22.4",
+    "eve": "0.24.3",
     "zod": "4.4.3"
   },
   "devDependencies": {

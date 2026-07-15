@@ -21,9 +21,10 @@ the checked-in allowlist.
 3. Read the human and agent documentation within the repository.
    When using `searchCode`, do not combine path qualifiers inside parentheses
    or with `OR`. Make a separate, simple search for each path or term.
-4. Identify documentation drift.
-5. Prepare a concise summary of the changes required, including file links and required changes.
-6. Respond in Slack.
+4. Identify documentation drift by comparing the changes in each commit with the documentation.
+5. If no drift is found, perform a sanity check comparing the repository files with the documentation.
+6. Prepare a concise summary of the changes required, including file links and required changes.
+7. Respond in Slack.
 
 # Quality bar
 
