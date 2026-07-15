@@ -1,5 +1,12 @@
-import { connectSlackCredentials } from "@vercel/connect/eve";
+import { getToken } from "@vercel/connect";
+import { vercelOidc } from "eve/channels/auth";
 import { slackChannel } from "eve/channels/slack";
+
 export default slackChannel({
-    credentials: connectSlackCredentials("slack/docia"),
+  credentials: {
+    botToken: () => getToken("slack/docia", {
+      subject: { type: "app" },
+    }),
+    webhookVerifier: vercelOidc(),
+  },
 });

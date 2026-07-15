@@ -14,7 +14,6 @@
     "typecheck": "tsc"
   },
   "dependencies": {
-    "@github-tools/sdk": "^1.8.0",
     "@vercel/connect": "^0.3.3",
     "ai": "^7.0.0",
     "eve": "0.24.3",
