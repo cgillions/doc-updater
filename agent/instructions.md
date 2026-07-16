@@ -13,13 +13,42 @@ The repositories to scan are:
 
 ### 1. Scan Recent Activity (Last 24 Hours)
 
-First, search for commits on main from the last 24 hours.
+Call `get_review_window` once at the start of the run. Reuse its exact UTC
+`start` and `end` timestamps for every activity query. Never estimate the
+window from a calendar date, the phrase "today", or the model's current time.
 
-Use the GitHub tools to:
-- Search for pull requests merged in the last 24 hours using `search_pull_requests` with a query like: `repo:${{ github.repository }} is:pr is:merged merged:>=YYYY-MM-DD` (replace YYYY-MM-DD with yesterday's date)
-- Get details of each merged PR using `pull_request_read`
-- Review commits from the last 24 hours using `list_commits`
-- Get detailed commit information using `get_commit` for significant changes
+Treat `list_commits` as the authoritative activity inventory. Call it with:
+
+- the repository owner and name;
+- `since` set to the review window's `start`;
+- `until` set to the review window's `end`;
+- `perPage: 100` and `page: 1`; and
+- no `sha`, so GitHub uses the repository's default branch.
+
+Continue with page 2, 3, and so on whenever a page contains 100 commits. Stop
+only when a page contains fewer than 100 commits. Combine every page, remove
+duplicate SHAs, and retain commits whose committer timestamp is within the
+inclusive `[start, end]` window. Do not stop after merged pull requests:
+standalone commits and commits from unmerged work can still be on the default
+branch and must be reviewed.
+
+Search merged pull requests separately as supplemental context. Use
+`search_pull_requests` with `perPage: 100`, paginate all results, use
+`merged:>=YYYY-MM-DD` where the date is `mergedSearchDate`, and then retain only
+pull requests whose exact merge timestamp is inside `[start, end]`. A
+date-qualified search may return candidates outside the 24-hour window, so do
+not use it as the final time filter.
+
+For each retained pull request, call `pull_request_read` with the exact MCP
+input names `owner`, `repo`, `pullNumber`, and `method`. Use
+`method: "get_diff"` to inspect its diff. If a large diff cannot be returned,
+use `method: "get_files"` with pagination and inspect the relevant commits with
+`get_commit` instead.
+
+Reconcile pull-request commits against the authoritative commit inventory by
+SHA. Analyze every retained commit at least once, including commits that have
+no associated merged pull request. Use `get_commit` when the list result does
+not contain enough file or patch detail to judge documentation impact.
 
 ### 2. Analyze Changes
 
@@ -122,7 +151,7 @@ This PR updates the documentation based on features merged in the last 24 hours.
 
 ### 7. Handle Edge Cases
 
-- **No recent changes**: If there are no merged PRs in the last 24 hours, exit gracefully without creating a PR
+- **No recent changes**: Only conclude there are no recent changes after the fully paginated commit inventory and merged pull request search are both empty for the exact review window
 - **Already documented**: If all features are already documented, exit gracefully
 - **Unclear features**: If a feature is complex and needs human review, note it in the PR description but include basic documentation
 - **No documentation directory**: If there's no obvious documentation location, document in README.md or suggest creating a docs directory

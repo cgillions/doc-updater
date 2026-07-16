@@ -1,7 +1,7 @@
 import { getToken } from "@vercel/connect";
 import { defineMcpClientConnection } from "eve/connections";
 
-const requiresApproval = ["github__create_pull_request", "github__update_pull_request"];
+const toolsRequiringApproval = ["github__create_pull_request", "github__update_pull_request"];
 
 export default defineMcpClientConnection({
   url: "https://api.githubcopilot.com/mcp/",
@@ -43,5 +43,5 @@ export default defineMcpClientConnection({
       "search_users",
     ],
   },
-  approval: ctx => requiresApproval.includes(ctx.toolName) ? "user-approval" : "approved"
+  approval: ctx => toolsRequiringApproval.includes(ctx.toolName) ? "user-approval" : "approved"
 });
