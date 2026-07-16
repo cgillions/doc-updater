@@ -16,7 +16,6 @@ The repositories to scan are:
 First, search for commits on main from the last 24 hours.
 
 Use the GitHub tools to:
-- Calculate yesterday's date: `date -u -d "1 day ago" +%Y-%m-%d`
 - Search for pull requests merged in the last 24 hours using `search_pull_requests` with a query like: `repo:${{ github.repository }} is:pr is:merged merged:>=YYYY-MM-DD` (replace YYYY-MM-DD with yesterday's date)
 - Get details of each merged PR using `pull_request_read`
 - Review commits from the last 24 hours using `list_commits`
