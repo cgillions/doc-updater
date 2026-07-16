@@ -1,6 +1,7 @@
 import { defineSchedule } from "eve/schedules";
 
 import slack from "../channels/slack";
+import { requireSlackChannelId } from "../lib/slack-channel-id.ts";
 
 export default defineSchedule({
     cron: "30 7 * * 1-5",
@@ -8,7 +9,7 @@ export default defineSchedule({
         waitUntil(
             receive(slack, {
                 message: "Complete your workflow precisely.",
-                target: { channelId: "agent-test" },
+                target: { channelId: requireSlackChannelId() },
                 auth: appAuth
             })
         )

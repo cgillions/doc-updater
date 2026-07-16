@@ -43,6 +43,7 @@ runs, resume a branch, or manage a rolling draft pull request.
 - Permission to create or link a Vercel project
 - Permission to create Vercel Connect connectors for the selected Vercel team
 - Permission to install an app in the target Slack workspace
+- The canonical Slack channel ID for scheduled reports (`C...` or `G...`)
 - Permission to install a GitHub App on each GitHub account or organization that
   owns a repository Docia will review
 
@@ -136,6 +137,22 @@ Verify the result in the Vercel dashboard:
 
 The `--triggers` flag and exact trigger path are both required. Without them,
 Slack app mentions and direct messages do not reach Eve.
+
+Configure the scheduled report target in the Vercel project's environment
+variables:
+
+1. In Slack, open the report channel's details and copy its channel ID. Use the
+   canonical `C...` or `G...` ID, not a name such as `agent-test`.
+2. Add `SLACK_CHANNEL_ID` with that value to the Vercel **Production**
+   environment. Add it to `.env.local` as well when testing schedule dispatches
+   locally.
+3. Redeploy after adding or changing the value.
+
+Eve uses the channel ID and Slack thread timestamp as the continuation token
+for a scheduled session. A channel name may be accepted when posting the first
+message, but Slack returns the canonical channel ID with button interactions;
+using a name therefore prevents approval responses from reaching the parked
+session.
 
 ### 3. Create the GitHub connector and install its GitHub App
 
