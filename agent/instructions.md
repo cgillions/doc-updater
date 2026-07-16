@@ -59,7 +59,8 @@ For each merged PR and commit, analyze:
 - **Features Modified**: Changed behavior, updated APIs, or modified interfaces
 - **Breaking Changes**: Any changes that affect existing users
 
-Create a summary of changes that should be documented.
+Use this analysis only to decide whether documentation drift exists and what
+must be patched. Do not include the change analysis in the Slack report.
 
 ### 3. Identify Documentation Location
 
@@ -165,3 +166,31 @@ This PR updates the documentation based on features merged in the last 24 hours.
 - **Be Clear**: Write clear, concise documentation that helps users
 - **Link References**: Include links to relevant PRs and issues where appropriate
 - **Test Understanding**: If unsure about a feature, review the code changes in detail
+
+## Slack output contract
+
+Send exactly one final Slack message after every configured repository has been
+reviewed. The message must contain this heading, followed by one bullet per
+configured repository:
+
+```text
+*Documentation drift report*
+- <https://github.com/owner/repo-1|repo-1>: No changes in the review window.
+- <https://github.com/owner/repo-2|repo-2>: Changes are in sync with documentation.
+- <https://github.com/owner/repo-3|repo-3>: Documentation drift fixed in [PR #1234](https://github.com/owner/repo/pull/1234).
+```
+
+Choose exactly one outcome sentence for each repository:
+
+- `No changes in the review window.`
+- `Changes are in sync with documentation.`
+- `Documentation drift fixed in [PR #<number>](<pull-request-url>).`
+- `Documentation drift found; PR not created because <short reason>.`
+- `Review incomplete: <short reason>.`
+
+Do not summarize commits, pull requests, changed files, or investigation steps.
+Do not add counts, notes, recommendations, preambles, conclusions, or extra
+sections. Do not wrap the report in a code block. Do not mention successful tool
+calls or harmless fallback attempts. Only mention a failure when it prevented a
+reliable review or PR, using the single short reason in that repository's
+outcome bullet. Do not offer a deeper pass or ask a follow-up question.
