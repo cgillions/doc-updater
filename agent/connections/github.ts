@@ -1,11 +1,15 @@
 import { getToken } from "@vercel/connect";
 import { defineMcpClientConnection } from "eve/connections";
 
-const toolsRequiringApproval = ["github__create_pull_request", "github__update_pull_request"];
+const toolsRequiringApproval = [
+  "github__create_pull_request",
+  "github__update_pull_request",
+];
 
 export default defineMcpClientConnection({
   url: "https://api.githubcopilot.com/mcp/",
-  description: "GitHub repositories, commits, pull requests, issues, and code search.",
+  description:
+    "GitHub repository review plus branch, file, and pull-request updates.",
   auth: {
     principalType: "app",
     getToken: async () => ({
@@ -16,6 +20,8 @@ export default defineMcpClientConnection({
   },
   tools: {
     allow: [
+      "create_branch",
+      "create_pull_request",
       "get_commit",
       "get_file_contents",
       "get_label",
@@ -29,19 +35,20 @@ export default defineMcpClientConnection({
       "list_issue_types",
       "list_issues",
       "list_pull_requests",
-      "create_pull_request",
-      "update_pull_request",
       "list_releases",
       "list_repository_collaborators",
       "list_tags",
       "pull_request_read",
+      "push_files",
       "search_code",
       "search_commits",
       "search_issues",
       "search_pull_requests",
       "search_repositories",
       "search_users",
+      "update_pull_request",
     ],
   },
-  approval: ctx => toolsRequiringApproval.includes(ctx.toolName) ? "user-approval" : "approved"
+  approval: ({ toolName }) =>
+    toolsRequiringApproval.includes(toolName) ? "user-approval" : "approved",
 });

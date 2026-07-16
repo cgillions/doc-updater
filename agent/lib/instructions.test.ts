@@ -33,3 +33,22 @@ test("requires one concise outcome-only Slack report", async () => {
   assert.match(instructions, /Do not offer a deeper\s+pass or ask a follow-up question/);
   assert.match(instructions, /Documentation drift fixed in \[PR #1234\]\(https:\/\/github\.com\/owner\/repo\/pull\/1234\)\./);
 });
+
+test("uses the available GitHub MCP write workflow instead of nonexistent skills", async () => {
+  const instructions = await readFile(instructionsPath, "utf8");
+
+  assert.match(instructions, /Call `create_branch`/);
+  assert.match(instructions, /Call `push_files`/);
+  assert.match(instructions, /Call `create_pull_request`/);
+  assert.match(
+    instructions,
+    /`owner`, `repo`, `branch`,\s+`files`, and `message`/,
+  );
+  assert.match(
+    instructions,
+    /`owner`, `repo`, `title`,\s+`head`, and `base`/,
+  );
+  assert.doesNotMatch(instructions, /safe-outputs/i);
+  assert.doesNotMatch(instructions, /create-pull-request/i);
+  assert.doesNotMatch(instructions, /using the edit tool/i);
+});

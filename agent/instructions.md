@@ -71,15 +71,10 @@ Determine where documentation is located in this repository:
 - Check for `*.md` files in root or subdirectories
 - Look for documentation conventions in the repository
 
-Use bash commands to explore documentation structure:
-
-```bash
-# Find all markdown files
-find . -name "*.md" -type f | head -20
-
-# Check for docs directory
-ls -la docs/ 2>/dev/null || echo "No docs directory found"
-```
+Use `get_file_contents` to inspect the repository root and likely documentation
+directories. Use `search_code` when the location is not evident. These are
+GitHub MCP tools; do not look for or load a documentation skill, shell tool, or
+filesystem edit tool.
 
 ### 4. Identify Documentation Gaps
 
@@ -102,7 +97,7 @@ For each missing or incomplete feature documentation:
     - Use similar examples
     - Match the level of detail
 
-3. **Update the appropriate file(s)** using the edit tool:
+3. **Prepare the complete updated content** for each appropriate file:
     - Add new sections for new features
     - Update existing sections for modified features
     - Add deprecation notices for removed features
@@ -113,10 +108,22 @@ For each missing or incomplete feature documentation:
 
 ### 6. Create Pull Request
 
-If you made any documentation changes:
+If documentation changes are required, use the GitHub MCP tools directly. They
+are connection tools, not skills; do not call `load_skill` for this workflow.
 
-1. **Call the safe-outputs create-pull-request tool** to create a PR
-2. **Include in the PR description**:
+1. Determine the repository's default branch during repository discovery and
+   use it as the pull request base.
+2. Call `create_branch` with `owner`, `repo`, `branch`, and `from_branch` to
+   create a dedicated documentation branch from that default branch.
+3. Call `push_files` once with the exact inputs `owner`, `repo`, `branch`,
+   `files`, and `message`. Each entry in `files` must contain the repository
+   `path` and the complete updated `content`. Use a conventional `docs:` commit
+   message. Never write documentation directly to the default branch.
+4. Call `create_pull_request` with the exact inputs `owner`, `repo`, `title`,
+   `head`, and `base`, plus `body`. Set `head` to the documentation branch and
+   `base` to the default branch. This call requires Slack approval; if approval
+   is denied, report that no PR was created.
+5. **Include in the PR description**:
     - List of features documented
     - Summary of changes made
     - Links to relevant merged PRs that triggered the updates
