@@ -7,7 +7,7 @@ export default defineSchedule({
     async run({ receive, waitUntil, appAuth }) {
         waitUntil(
             receive(slack, {
-                message: "Check for documentation drift.",
+                message: "Complete your workflow precisely.",
                 target: { channelId: "agent-test" },
                 auth: appAuth
             })
