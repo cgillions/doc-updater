@@ -8,7 +8,7 @@ export default defineSchedule({
         waitUntil(
             receive(slack, {
                 message: "Check for documentation drift. Report to Slack when changes are required, and to satisfy HITL guardrails.",
-                target: { channelId: "slack/docia" },
+                target: { channelId: "agent-test" },
                 auth: appAuth
             })
         )
