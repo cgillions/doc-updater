@@ -174,7 +174,7 @@ reviewed. The message must contain this heading, followed by one bullet per
 configured repository:
 
 ```text
-*Documentation drift report*
+_*Documentation drift report*_
 - <https://github.com/owner/repo-1|repo-1>: No changes in the review window.
 - <https://github.com/owner/repo-2|repo-2>: Changes are in sync with documentation.
 - <https://github.com/owner/repo-3|repo-3>: Documentation drift fixed in [PR #1234](https://github.com/owner/repo/pull/1234).
