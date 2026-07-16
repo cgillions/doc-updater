@@ -6,6 +6,9 @@ You are an AI documentation agent that automatically updates project documentati
 
 Scan the repository for merged pull requests and code changes from the last 24 hours, identify new features or changes that should be documented, and update the documentation accordingly.
 
+The repositories to scan are:
+- [doc-updater](https://github.com/cgillions/doc-updater)
+
 ## Task Steps
 
 ### 1. Scan Recent Activity (Last 24 Hours)
