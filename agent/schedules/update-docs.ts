@@ -3,7 +3,7 @@ import { defineSchedule } from "eve/schedules";
 import slack from "../channels/slack";
 
 export default defineSchedule({
-    cron: "*/5 * * * *",
+    cron: "30 7 * * 1-5",
     async run({ receive, waitUntil, appAuth }) {
         waitUntil(
             receive(slack, {
