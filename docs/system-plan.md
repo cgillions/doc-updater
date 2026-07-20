@@ -16,9 +16,9 @@ documentation page.
   parent agent to manage the enterprise repository queue.
 - Allow repository documentation to produce approval-gated pull requests
   independently from Confluence updates.
-- Require resolved ownership, evidence, dedicated proposal verification,
-  current-page revalidation, and authorized Slack approval for Confluence
-  changes.
+- Require resolved routing, evidence, dedicated proposal verification,
+  current-page revalidation, and approval by a current CODEOWNER of the
+  repository driving each change.
 - Store catalog state, indexes, cursors, proposals, and audit history in
   PostgreSQL. The model must not control routing, authorization, or publication
   decisions.
@@ -46,7 +46,7 @@ flowchart LR
     RD --> P1["Repository proposal"]
     CI --> P2["Confluence proposal"]
 
-    P1 --> A["Owning-team Slack approval"]
+    P1 --> A["Driving-repository CODEOWNER approval"]
     P2 --> A
 
     A --> G["GitHub documentation PR"]
@@ -68,7 +68,7 @@ flowchart TB
         Dispatcher["Schedule dispatcher<br/>leases and concurrency"]
         Registry["Repository registry and<br/>Roadie scope resolver"]
         Tools["Typed tool executors<br/>scope and baseline enforcement"]
-        Approval["Approval and publication policy"]
+        Approval["Custom CODEOWNERS approval gate<br/>and publication policy"]
         Connections["Allowlisted GitHub, Roadie,<br/>Confluence, and Slack connections"]
         Credentials["Vercel Connect and<br/>runtime-managed credentials"]
 
@@ -89,7 +89,7 @@ flowchart TB
         GitHub["GitHub repositories and App"]
         Roadie["Roadie software catalog"]
         Confluence["Confluence pages"]
-        Slack["Slack channels and<br/>authorized approvers"]
+        Slack["Slack channels and<br/>interaction identities"]
     end
 
     Cron --> Dispatcher
@@ -111,6 +111,7 @@ flowchart TB
     Index --> Postgres
     Index --> Objects
     Approval --> Postgres
+    Approval -->|"latest .github/CODEOWNERS from main"| GitHub
     Approval --> Connections
 
     Credentials -.-> Connections
@@ -124,7 +125,7 @@ flowchart TB
     Confluence -->|"untrusted documentation evidence"| Connections
     Connections --> Evidence
     Evidence --> Session
-    Slack -->|"authenticated approval response"| Approval
+    Slack -->|"verified custom button interaction<br/>with Slack user ID"| Approval
 ```
 
 The model sees only the opaque job reference and evidence returned by typed
@@ -145,7 +146,8 @@ sequenceDiagram
     participant Roadie as Roadie connection
     participant Session as Repository Eve session
     participant Confluence as Confluence connection/index
-    participant Slack as Slack approver
+    participant Gate as CODEOWNERS approval gate
+    participant Slack as Slack channel member
     participant Publisher as Gated publisher
 
     Cron->>Dispatcher: Trigger scheduled batch
@@ -172,28 +174,43 @@ sequenceDiagram
             Session->>Store: Complete job and advance cursor
         else Drift found
             Session->>Store: Persist evidence and baseline-bound proposal
-            Session->>Slack: Post evidence and before/after approval card
+            Session->>Gate: Create pending approval for driving repository
+            Gate->>Slack: Post evidence and custom approve or reject buttons
             Note over Session,Slack: Eve session parks durably without holding compute
-            Slack-->>Session: Authorized approve or reject response
-
-            alt Repository proposal approved
-                Session->>Publisher: Publish approved repository proposal
-                Publisher->>GitHub: Revalidate base SHA and create documentation PR
-                GitHub-->>Publisher: Pull request result
-            else Confluence proposal approved
-                Session->>Publisher: Publish approved page proposal
-                Publisher->>Confluence: Re-fetch page ID, version, and body hash
-                alt Baseline remains current
-                    Publisher->>Confluence: Update existing page with next version
-                    Confluence-->>Publisher: New page version
-                else Page changed after proposal
-                    Publisher->>Store: Expire approval and require regeneration
-                end
-            else Proposal rejected
-                Session->>Store: Record rejection without publication
+            Slack->>Gate: Verified interaction with Slack user ID
+            Gate->>GitHub: Fetch latest .github/CODEOWNERS from main
+            GitHub-->>Gate: User and organisation/team principals
+            opt CODEOWNERS contains teams
+                Gate->>GitHub: List all members of each team with pagination
+                GitHub-->>Gate: Team member GitHub logins
             end
+            Gate->>Gate: Map Slack identity and authorize GitHub login
 
-            Session->>Store: Record final outcome and cursor state
+            alt Unauthorized interaction
+                Gate-->>Slack: Ephemeral denial - request remains pending
+            else Authorized interaction
+                Gate->>Store: Atomically record approval or rejection
+                Gate-->>Session: Resume with authorized response
+
+                alt Repository proposal approved
+                    Session->>Publisher: Publish approved repository proposal
+                    Publisher->>GitHub: Revalidate base SHA and create documentation PR
+                    GitHub-->>Publisher: Pull request result
+                else Confluence proposal approved
+                    Session->>Publisher: Publish approved page proposal
+                    Publisher->>Confluence: Re-fetch page ID, version, and body hash
+                    alt Baseline remains current
+                        Publisher->>Confluence: Update existing page with next version
+                        Confluence-->>Publisher: New page version
+                    else Page changed after proposal
+                        Publisher->>Store: Expire approval and require regeneration
+                    end
+                else Proposal rejected
+                    Session->>Store: Record rejection without publication
+                end
+
+                Session->>Store: Record final outcome and cursor state
+            end
         end
     end
 ```
@@ -297,7 +314,7 @@ derived from three layers:
 
 1. The GitHub App installation inventory defines the hard access boundary.
 2. Roadie supplies Component, System, Group, documentation scope, ownership,
-   Slack routing, and lifecycle metadata.
+   Slack routing, and lifecycle metadata. It does not grant approval authority.
 3. PostgreSQL stores the materialized scheduling state needed to process that
    inventory reliably.
 
@@ -349,11 +366,18 @@ agent/
     20-evidence-policy.md
     30-publication-policy.md
   lib/
+    approval-request-store.ts
+    codeowners-authorizer.ts
     repository-registry.ts
     review-job-store.ts
     documentation-scope-resolver.ts
     document-index.ts
+    identity-link-store.ts
+    slack-approval-actions.ts
   tools/
+    request-change-approval.ts
+    publish-repository-proposal.ts
+    publish-confluence-proposal.ts
   schedules/
     dispatch-reviews.ts
     reconcile-documentation.ts
@@ -389,13 +413,19 @@ thin tools. Expected authored tools include:
   references.
 - `create_change_proposal`: persist a repository or Confluence proposal
   against an immutable baseline.
+- `request_change_approval`: create an application-owned approval request for
+  the repository driving the proposal and park the session.
+- `publish_repository_proposal`: revalidate the approval and repository
+  baseline, then create the documentation branch and pull request.
 - `complete_review_job`: record the outcome and advance the repository cursor.
 - `publish_confluence_proposal`: revalidate and publish an approved proposal.
 
 GitHub, Roadie, and Confluence API operations should use narrowly allowlisted
 MCP or OpenAPI connections where suitable. Scheduling stores, cursor logic,
 scope resolution, indexing, and concurrency remain imported `lib/` code rather
-than model-visible tools.
+than model-visible tools. Model-visible connections are read-only; only the
+application-owned publication tools hold write capability, so the custom gate
+cannot be bypassed with a lower-level GitHub or Confluence call.
 
 ### Review execution without subagents
 
@@ -420,6 +450,63 @@ Do not use the built-in `agent` tool or Eve's experimental model-authored
 `Workflow` tool for repository review or enterprise fan-out. Queue selection,
 concurrency, retries, verification gates, and authorization are operational
 controls and remain deterministic TypeScript.
+
+### CODEOWNERS approval authorization
+
+Every repository and Confluence proposal is authorized by the repository
+whose implementation evidence caused the proposed change. A Confluence page
+does not need an approval repository of its own, and joint page ownership does
+not add approvers from other repositories.
+
+The authorization service must:
+
+1. Bind the approval request to the driving repository, proposal digest,
+   target, Slack channel, Slack thread and message, expiry, and parked-session
+   continuation reference.
+2. Post custom Slack actions rather than Eve's built-in `eve_input:` approval
+   actions. Built-in actions resume the pending input before application code
+   can authorize the clicking user.
+3. Receive a verified Slack interaction, require an opaque single-purpose
+   request ID, verify its channel, thread, message, status, and expiry, and use
+   the interaction's Slack user ID. Never trust identity or scope supplied in
+   button values or model output.
+4. Resolve that Slack ID to a verified GitHub login through an
+   application-owned identity mapping populated by an enterprise identity
+   sync or controlled administration. A uniquely verified corporate email may
+   establish or refresh a link; display names and ambiguous emails cannot.
+5. Fetch `.github/CODEOWNERS` from the latest commit on `main` when the button
+   is clicked. Do not authorize from the review SHA, a Roadie User resource, a
+   cached membership result, or `memberOf`.
+6. Parse individual `@user` principals and `@organisation/team` principals
+   separately. Individual users enter the approver set directly. For each team,
+   require the organisation to match the driving repository, then use the
+   GitHub App to fetch every page of current team members and add their GitHub
+   logins to the approver set. Changed documentation or implementation paths do
+   not select different owners.
+7. Allow either approval or rejection only when the resolved GitHub login is
+   in that set. An unauthorized click returns an ephemeral denial and leaves
+   the request pending.
+8. Atomically accept the first authorized terminal decision, retain subsequent
+   interactions for audit, and resume Eve only after the decision is stored.
+
+The GitHub App needs read access to repository contents and organization team
+membership. Failure to read or parse CODEOWNERS, expand a team, or resolve the
+Slack identity blocks both repository and Confluence publication. Team-member
+results may be reused within one authorization evaluation but are not persisted
+as an independent source of authority.
+
+Approval requests use a small explicit state machine:
+
+```text
+pending -> approved -> published
+pending -> rejected
+pending | approved -> expired
+```
+
+Unauthorized and replayed interactions are audited but do not change state.
+Publication accepts only an unexpired `approved` request whose proposal digest
+and target baseline still match. The CODEOWNERS authorization recorded when
+the decision was accepted remains valid for that request's lifecycle.
 
 ### Implementation evidence
 
@@ -503,13 +590,14 @@ controlled by the entity that declares the root.
 
 Duplicate links associated with one owner produce a catalog warning but remain
 usable. A page associated with different owner Groups remains eligible for
-detection but is ineligible for updates until its ownership is unambiguous.
+detection and update: the driving repository determines approval authority,
+while that repository's resolved Roadie owner determines the Slack route.
 
 If the component, owner, or system cannot be resolved:
 
-- repository-local drift detection and an approval-gated pull request remain
-  permitted;
-- all Confluence proposals and updates are blocked; and
+- repository-local drift detection remains permitted;
+- all repository and Confluence publication is blocked because the configured
+  Slack route cannot be established; and
 - an onboarding diagnostic is sent to a central operations channel.
 
 Validate the configuration in CI, including:
@@ -534,6 +622,10 @@ Define and validate the following typed boundaries:
   SHA, documentation location and version, and confidence reasons.
 - `ChangeProposal`: one repository file or Confluence page, immutable baseline,
   structured patch, evidence bundle, approval state, and publication result.
+- `ApprovalRequest`: proposal digest, driving repository, target, Slack route,
+  parked-session reference, status, expiry, and authorized decision.
+- `IdentityLink`: Slack user ID, verified GitHub login, verification source,
+  and refresh timestamp.
 
 Use PostgreSQL as the authoritative application store, optionally with
 `pgvector` for candidate ranking. Store:
@@ -542,10 +634,13 @@ Use PostgreSQL as the authoritative application store, optionally with
 - repository cursors and scheduled-job leases;
 - Confluence page identity, hierarchy, version, body hash, permissions, and
   indexed sections;
-- evidence claims, proposals, approvals, conflicts, and publication outcomes;
+- evidence claims, proposals, approval requests, identity links, conflicts,
+  and publication outcomes;
   and
-- immutable audit records connecting source SHA, catalog revision, page
-  version, approver, and resulting pull request or page version.
+- immutable audit records connecting source SHA, current CODEOWNERS blob SHA,
+  the matched user or team principal, resolved GitHub login, Slack actor,
+  catalog revision, page version, decision, and resulting pull request or page
+  version.
 
 Object storage may hold encrypted large before-and-after artifacts under a
 defined retention policy. Cached content and embeddings are retrieval aids,
@@ -557,14 +652,14 @@ Publication must use invariant-based gates rather than relying on a model's
 numeric confidence score:
 
 1. The target is explicitly present in the resolved scope.
-2. Confluence ownership and Slack routing are unambiguous.
+2. The driving repository and its Roadie-configured Slack route are resolved.
 3. Every changed factual statement has implementation evidence at the reviewed
    SHA.
 4. The patch is narrow and does not invent intent, policy, or architecture.
 5. A dedicated verification step confirms the proposal and preservation of
    unaffected content, followed by deterministic scope and baseline checks.
-6. An authorized member of the owning Roadie Group approves in the configured
-   Slack channel.
+6. A Slack user mapped to a current CODEOWNER of the driving repository
+   approves in the configured Slack channel through the custom approval gate.
 7. The executor re-fetches the target and confirms that its baseline has not
    changed.
 
@@ -602,8 +697,12 @@ numeric confidence score:
   history, Confluence descendants, restricted pages, version conflicts,
   approval expiry, and concurrent proposals.
 - Security tests proving model-supplied identifiers cannot escape the resolved
-  scope, prompt-injected content cannot invoke writes, and unauthorized Slack
-  principals cannot approve.
+  scope, prompt-injected content cannot invoke writes, built-in Eve approval
+  actions cannot bypass the gate, and unauthorized Slack principals cannot
+  approve or reject.
+- Authorization tests for Slack-to-GitHub identity mapping, individual owners,
+  paginated GitHub team expansion, concurrent clicks, missing or malformed
+  CODEOWNERS, and fail-closed dependency errors.
 - Golden drift evaluations covering known drift, valid no-drift, shared pages,
   macros, tables, code blocks, and changes that must remain report-only.
 
@@ -632,8 +731,12 @@ by pilot teams.
 - Scheduled batches, rather than merge events, are the primary trigger.
 - Review and approval are routed to a canonical Slack channel configured on
   each owning Group.
-- Repository documentation may be updated when Roadie ownership is unresolved,
-  but Confluence access remains blocked.
+- Approval authority always comes from the latest `.github/CODEOWNERS` on
+  `main` in the repository driving the change. CODEOWNERS are treated as
+  repository-wide, and Roadie `User` resources and `memberOf` are not approval
+  fallbacks.
+- Missing Roadie ownership permits repository-only detection but blocks
+  publication until the Slack route is resolved.
 - Exact Confluence links and bounded page-tree roots are supported; whole-space
   discovery is not.
 - All repository and Confluence publications require human approval.
