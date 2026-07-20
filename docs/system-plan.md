@@ -12,9 +12,11 @@ documentation page.
   `Component -> System -> Group`.
 - Process repositories in scheduled incremental batches and run a periodic
   full reconciliation against the current implementation.
+- Start one independent root Eve session per repository review. Do not use one
+  parent agent to manage the enterprise repository queue.
 - Allow repository documentation to produce approval-gated pull requests
   independently from Confluence updates.
-- Require resolved ownership, evidence, independent verification, current-page
+- Require resolved ownership, evidence, dedicated proposal verification, current-page
   revalidation, and authorized Slack approval for Confluence changes.
 - Store catalog state, indexes, cursors, proposals, and audit history in
   PostgreSQL. The model must not control routing, authorization, or publication
@@ -22,9 +24,17 @@ documentation page.
 
 ```mermaid
 flowchart LR
-    S["Scheduled batch"] --> J["One isolated job per repository"]
-    J --> R["Roadie scope resolver"]
-    J --> I["Implementation evidence extractor"]
+    S["Scheduled batch"] --> D["Deterministic dispatcher"]
+    D --> J1["Repository session A"]
+    D --> J2["Repository session B"]
+    D --> JN["Repository session N"]
+
+    J1 --> R["Roadie scope resolver"]
+    J2 --> R
+    JN --> R
+    J1 --> I["Implementation evidence extractor"]
+    J2 --> I
+    JN --> I
 
     R --> RD["Repository documentation"]
     R --> CI["Eligible Confluence page index"]
@@ -60,6 +70,206 @@ repository's `roadie.yaml` and corresponding Roadie catalog entity. Run one
 durable, isolated workflow for each `(repository, baseSha, headSha, mode)`.
 Never place repositories or pages belonging to several teams into one model
 context.
+
+### Eve execution model
+
+The scheduled batch must be orchestrated by application code, not by a parent
+model. Each repository review is a peer root Eve session using the same agent
+definition, with its own history, durable state, telemetry, failures, and
+approval lifecycle.
+
+The schedule handler performs the following deterministic sequence:
+
+1. Refresh the materialized repository registry from the GitHub App inventory
+   and Roadie catalog.
+2. Atomically claim a bounded number of due review jobs using expiring leases.
+3. Start one Eve session for each claimed job with `receive(...)`.
+4. Run the claimed jobs concurrently with an explicit concurrency limit.
+5. Mark successful jobs complete or release failed jobs for retry.
+6. Leave repositories beyond the batch limit for a later schedule invocation.
+
+Conceptually:
+
+```ts
+export default defineSchedule({
+  cron: "0 7 * * 1-5",
+  async run({ receive, waitUntil, appAuth }) {
+    waitUntil(
+      (async () => {
+        await repositoryRegistry.refresh();
+
+        const jobs = await reviewJobStore.claimDue({
+          limit: 10,
+          leaseForMs: 30 * 60_000,
+        });
+
+        await Promise.allSettled(
+          jobs.map((job) =>
+            receive(slack, {
+              message: `Complete repository review job ${job.id}.`,
+              target: { channelId: job.slackChannelId },
+              auth: {
+                ...appAuth,
+                attributes: { reviewJobId: job.id },
+              },
+            }),
+          ),
+        );
+      })(),
+    );
+  },
+});
+```
+
+The production implementation should use a concurrency limiter rather than an
+unbounded `Promise.allSettled`. The claim limit and concurrency limit are
+separate controls: the first bounds leased work and the second protects model,
+GitHub, Roadie, Confluence, database, and Slack rate limits.
+
+The dispatcher must provide the job identity through trusted session context.
+The model receives only an opaque job ID. An application-owned tool resolves
+that ID from the authenticated session and rejects attempts to select a
+different job.
+
+Delivery is at least once. Review execution and publication must therefore be
+idempotent by review job ID, repository SHA, and proposal baseline. A later
+schedule invocation may reclaim an expired lease without producing duplicate
+pull requests or Confluence updates.
+
+A batch summary should be generated from persisted job outcomes by a separate
+summary schedule or completion process. A parent agent must not retain all
+repository results in its context while waiting for the batch.
+
+### Repository registry
+
+The set of repositories must not be embedded in agent instructions. It is
+derived from three layers:
+
+1. The GitHub App installation inventory defines the hard access boundary.
+2. Roadie supplies Component, System, Group, documentation scope, ownership,
+   Slack routing, and lifecycle metadata.
+3. PostgreSQL stores the materialized scheduling state needed to process that
+   inventory reliably.
+
+The effective scheduled set contains repositories that are accessible to the
+GitHub App, are not archived or administratively paused, and are due for
+review. Missing Roadie ownership does not remove an accessible repository from
+the set; it places that repository in `repo-only` mode and generates an
+onboarding diagnostic.
+
+```ts
+interface RepositoryRegistryEntry {
+  repositoryId: string;
+  repositoryFullName: string;
+  defaultBranch: string;
+  isArchived: boolean;
+
+  componentRef: string | null;
+  systemRef: string | null;
+  ownerRef: string | null;
+
+  mode: "enabled" | "shadow" | "repo-only" | "paused";
+  nextReviewAt: string;
+  lastSuccessfullyReviewedSha: string | null;
+
+  catalogRevision: string | null;
+  configurationHash: string | null;
+}
+```
+
+The registry is an operational projection, not a second ownership or
+documentation configuration source. Component relationships and documentation
+links remain in version-controlled Roadie entities. The database stores their
+resolved references and hashes so each review can be reproduced and audited.
+
+### Eve instructions and tools
+
+The root instructions describe stable behavior and the structured workflow for
+one repository review. They do not describe the multi-repository scheduler.
+Use static Markdown unless the prompt genuinely needs build-time TypeScript or
+runtime session-specific composition.
+
+Recommended layout:
+
+```text
+agent/
+  instructions.md
+  instructions/
+    10-review-procedure.md
+    20-evidence-policy.md
+    30-publication-policy.md
+  lib/
+    repository-registry.ts
+    review-job-store.ts
+    documentation-scope-resolver.ts
+    document-index.ts
+  tools/
+  schedules/
+    dispatch-reviews.ts
+    reconcile-documentation.ts
+    summarize-reviews.ts
+```
+
+Instructions cover:
+
+- implementation as the source of truth;
+- the single-repository review procedure;
+- untrusted repository and documentation content;
+- scope and evidence requirements;
+- when uncertainty requires a report instead of a proposal; and
+- narrow patch and publication rules.
+
+Deterministic application code covers:
+
+- repository discovery and eligibility;
+- cursors, job leases, retries, and concurrency;
+- owner and page resolution;
+- page-ID and baseline validation;
+- approval authorization; and
+- idempotent publication.
+
+Prefer a small number of coarse, typed, application-owned tools over many
+thin tools. Expected authored tools include:
+
+- `load_review_job`: return the immutable job and resolved documentation scope
+  derived from the current session.
+- `search_document_index`: search only the job's eligible Confluence pages.
+- `get_document_candidate`: load a shortlisted page and exact version.
+- `record_drift_evidence`: persist structured claims and implementation
+  references.
+- `create_change_proposal`: persist a repository or Confluence proposal
+  against an immutable baseline.
+- `complete_review_job`: record the outcome and advance the repository cursor.
+- `publish_confluence_proposal`: revalidate and publish an approved proposal.
+
+GitHub, Roadie, and Confluence API operations should use narrowly allowlisted
+MCP or OpenAPI connections where suitable. Scheduling stores, cursor logic,
+scope resolution, indexing, and concurrency remain imported `lib/` code rather
+than model-visible tools.
+
+### Review execution without subagents
+
+The initial design has no declared subagents. Separate root sessions already
+provide repository isolation and allow independent retries, approvals, and
+observability. Each repository session completes the full review using the
+root instructions and its bounded tool surface.
+
+Proposal verification is a dedicated structured step in the same repository
+session, followed by deterministic target, scope, and baseline checks in
+application code. The stages remain ordered:
+
+```text
+extract implementation evidence
+    -> rank eligible documentation
+    -> draft proposal
+    -> verify proposal
+    -> request approval
+```
+
+Do not use the built-in `agent` tool or Eve's experimental model-authored
+`Workflow` tool for repository review or enterprise fan-out. Queue selection,
+concurrency, retries, verification gates, and authorization are operational
+controls and remain deterministic TypeScript.
 
 ### Implementation evidence
 
@@ -201,8 +411,8 @@ numeric confidence score:
 3. Every changed factual statement has implementation evidence at the reviewed
    SHA.
 4. The patch is narrow and does not invent intent, policy, or architecture.
-5. An independent verifier confirms the proposal and preservation of
-   unaffected content.
+5. A dedicated verification step confirms the proposal and preservation of
+   unaffected content, followed by deterministic scope and baseline checks.
 6. An authorized member of the owning Roadie Group approves in the configured
    Slack channel.
 7. The executor re-fetches the target and confirms that its baseline has not
