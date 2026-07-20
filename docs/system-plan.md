@@ -16,8 +16,9 @@ documentation page.
   parent agent to manage the enterprise repository queue.
 - Allow repository documentation to produce approval-gated pull requests
   independently from Confluence updates.
-- Require resolved ownership, evidence, dedicated proposal verification, current-page
-  revalidation, and authorized Slack approval for Confluence changes.
+- Require resolved ownership, evidence, dedicated proposal verification,
+  current-page revalidation, and authorized Slack approval for Confluence
+  changes.
 - Store catalog state, indexes, cursors, proposals, and audit history in
   PostgreSQL. The model must not control routing, authorization, or publication
   decisions.
@@ -51,6 +52,155 @@ flowchart LR
     A --> G["GitHub documentation PR"]
     A --> C["Version-checked Confluence update"]
 ```
+
+## System Architecture and Sequence
+
+### Component and trust-boundary view
+
+```mermaid
+flowchart TB
+    subgraph Triggers["Trigger boundary"]
+        Cron["Vercel Cron schedule"]
+        Ops["Authenticated operations dispatch"]
+    end
+
+    subgraph Runtime["Trusted Eve application instance on Vercel"]
+        Dispatcher["Schedule dispatcher<br/>leases and concurrency"]
+        Registry["Repository registry and<br/>Roadie scope resolver"]
+        Tools["Typed tool executors<br/>scope and baseline enforcement"]
+        Approval["Approval and publication policy"]
+        Connections["Allowlisted GitHub, Roadie,<br/>Confluence, and Slack connections"]
+        Credentials["Vercel Connect and<br/>runtime-managed credentials"]
+
+        subgraph ModelBoundary["Model context - untrusted evidence boundary"]
+            Session["One root Eve session<br/>per repository job"]
+            Instructions["Stable review instructions"]
+            Evidence["Repository and documentation<br/>evidence"]
+        end
+    end
+
+    subgraph DataBoundary["Private persistence boundary"]
+        Postgres["PostgreSQL<br/>jobs, leases, cursors, scopes,<br/>proposals, approvals, audit"]
+        Objects["Encrypted object storage<br/>large immutable artifacts"]
+        Index["Bounded documentation index<br/>page ID and version scoped"]
+    end
+
+    subgraph External["External system boundary"]
+        GitHub["GitHub repositories and App"]
+        Roadie["Roadie software catalog"]
+        Confluence["Confluence pages"]
+        Slack["Slack channels and<br/>authorized approvers"]
+    end
+
+    Cron --> Dispatcher
+    Ops --> Dispatcher
+    Dispatcher --> Registry
+    Dispatcher --> Postgres
+    Dispatcher -->|"starts bounded peer sessions"| Session
+
+    Instructions --> Session
+    Session -->|"typed calls only"| Tools
+    Tools --> Registry
+    Tools --> Postgres
+    Tools --> Index
+    Tools --> Approval
+    Tools --> Connections
+
+    Registry --> Postgres
+    Registry --> Connections
+    Index --> Postgres
+    Index --> Objects
+    Approval --> Postgres
+    Approval --> Connections
+
+    Credentials -.-> Connections
+    Connections --> GitHub
+    Connections --> Roadie
+    Connections --> Confluence
+    Connections --> Slack
+
+    GitHub -->|"untrusted implementation evidence"| Connections
+    Roadie -->|"validated catalog data"| Registry
+    Confluence -->|"untrusted documentation evidence"| Connections
+    Connections --> Evidence
+    Evidence --> Session
+    Slack -->|"authenticated approval response"| Approval
+```
+
+The model sees only the opaque job reference and evidence returned by typed
+tools. Repository selection, credentials, resolved page IDs, approval
+authorization, current baselines, and publication remain inside the trusted
+runtime. External content is treated as untrusted even when it is fetched
+through an authenticated connection.
+
+### Scheduled repository review sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Cron as Vercel Cron
+    participant Dispatcher as Schedule dispatcher
+    participant Store as PostgreSQL job store
+    participant GitHub as GitHub connection
+    participant Roadie as Roadie connection
+    participant Session as Repository Eve session
+    participant Confluence as Confluence connection/index
+    participant Slack as Slack approver
+    participant Publisher as Gated publisher
+
+    Cron->>Dispatcher: Trigger scheduled batch
+    par Refresh accessible repositories
+        Dispatcher->>GitHub: List GitHub App repositories
+        GitHub-->>Dispatcher: Accessible repository inventory
+    and Refresh catalog relationships
+        Dispatcher->>Roadie: Read Components, Systems, and Groups
+        Roadie-->>Dispatcher: Ownership and documentation links
+    end
+    Dispatcher->>Store: Upsert registry and atomically claim due jobs
+    Store-->>Dispatcher: Bounded leased job batch
+
+    loop Each claimed job with bounded concurrency
+        Dispatcher->>Session: Start peer root session with trusted job ID
+        Session->>Store: Load immutable job and resolved scope
+        Store-->>Session: Repository SHA, eligible pages, owner, and route
+        Session->>GitHub: Read implementation changes and repository docs
+        GitHub-->>Session: Untrusted implementation evidence
+        Session->>Confluence: Search only eligible page IDs
+        Confluence-->>Session: Versioned documentation candidates
+
+        alt No documentation drift
+            Session->>Store: Complete job and advance cursor
+        else Drift found
+            Session->>Store: Persist evidence and baseline-bound proposal
+            Session->>Slack: Post evidence and before/after approval card
+            Note over Session,Slack: Eve session parks durably without holding compute
+            Slack-->>Session: Authorized approve or reject response
+
+            alt Repository proposal approved
+                Session->>Publisher: Publish approved repository proposal
+                Publisher->>GitHub: Revalidate base SHA and create documentation PR
+                GitHub-->>Publisher: Pull request result
+            else Confluence proposal approved
+                Session->>Publisher: Publish approved page proposal
+                Publisher->>Confluence: Re-fetch page ID, version, and body hash
+                alt Baseline remains current
+                    Publisher->>Confluence: Update existing page with next version
+                    Confluence-->>Publisher: New page version
+                else Page changed after proposal
+                    Publisher->>Store: Expire approval and require regeneration
+                end
+            else Proposal rejected
+                Session->>Store: Record rejection without publication
+            end
+
+            Session->>Store: Record final outcome and cursor state
+        end
+    end
+```
+
+Each repository session is independently observable and retryable. A failure,
+approval delay, or stale Confluence page affects only that job; the dispatcher
+and other repository sessions continue independently.
 
 ## Architecture and Processing
 
