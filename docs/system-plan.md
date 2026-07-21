@@ -151,13 +151,12 @@ sequenceDiagram
     participant Publisher as Gated publisher
 
     Cron->>Dispatcher: Trigger scheduled batch
-    par Refresh accessible repositories
-        Dispatcher->>GitHub: List GitHub App repositories
-        GitHub-->>Dispatcher: Accessible repository inventory
-    and Refresh catalog relationships
-        Dispatcher->>Roadie: Read Components, Systems, and Groups
-        Roadie-->>Dispatcher: Ownership and documentation links
-    end
+    Dispatcher->>GitHub: List GitHub App repositories
+    GitHub-->>Dispatcher: Accessible repository inventory
+    Dispatcher->>Roadie: Find Components by repository name
+    Roadie-->>Dispatcher: Matching Components and relations
+    Dispatcher->>Roadie: Read referenced Systems and Groups
+    Roadie-->>Dispatcher: Ownership, routing, and documentation links
     Dispatcher->>Store: Upsert registry and atomically claim due jobs
     Store-->>Dispatcher: Bounded leased job batch
 
@@ -232,11 +231,13 @@ Replace time-window-only processing with a durable cursor per repository:
 - A missing cursor, rewritten history, or default-branch change triggers a
   reconciliation rather than an inferred commit range.
 
-Enumerate repositories from the GitHub App installation, then resolve each
-repository's `roadie.yaml` and corresponding Roadie catalog entity. Run one
-durable, isolated workflow for each `(repository, baseSha, headSha, mode)`.
-Never place repositories or pages belonging to several teams into one model
-context.
+Enumerate repositories from the GitHub App installation, then use each
+repository name to query its Roadie Component through the catalog API. Validate
+that the returned Component's `github.com/project-slug` annotation equals the
+full GitHub repository name before using its relationships or documentation.
+Run one durable, isolated workflow for each
+`(repository, baseSha, headSha, mode)`. Never place repositories or pages
+belonging to several teams into one model context.
 
 ### Eve execution model
 
@@ -313,8 +314,9 @@ The set of repositories must not be embedded in agent instructions. It is
 derived from three layers:
 
 1. The GitHub App installation inventory defines the hard access boundary.
-2. Roadie supplies Component, System, Group, documentation scope, ownership,
-   Slack routing, and lifecycle metadata. It does not grant approval authority.
+2. The Roadie catalog API supplies Component, System, Group, documentation
+   scope, ownership, Slack routing, and lifecycle metadata. It does not grant
+   approval authority.
 3. PostgreSQL stores the materialized scheduling state needed to process that
    inventory reliably.
 
@@ -348,6 +350,9 @@ The registry is an operational projection, not a second ownership or
 documentation configuration source. Component relationships and documentation
 links remain in version-controlled Roadie entities. The database stores their
 resolved references and hashes so each review can be reproduced and audited.
+Runtime resolution never depends on reading catalog YAML from the target
+repository; Component entities may be maintained centrally or alongside their
+source code.
 
 ### Eve instructions and tools
 
@@ -426,6 +431,9 @@ scope resolution, indexing, and concurrency remain imported `lib/` code rather
 than model-visible tools. Model-visible connections are read-only; only the
 application-owned publication tools hold write capability, so the custom gate
 cannot be bypassed with a lower-level GitHub or Confluence call.
+
+The Roadie connection exposes only catalog read operations. Its credentials
+remain in the trusted runtime and are never available to the model.
 
 ### Review execution without subagents
 
@@ -577,13 +585,21 @@ apply only to roots declared on the same entity.
 
 ### Resolution rules
 
-1. Resolve the component's full Roadie entity reference.
-2. Follow its `spec.system` and `spec.owner` relationships.
-3. Union Component, System, and Group documentation links.
-4. Expand explicit roots and apply their local exclusions.
-5. Canonicalize and de-duplicate by `{Confluence site ID, page ID}`, never by
+1. Query Roadie Components using the GitHub repository name as
+   `metadata.name`. Component YAML location is irrelevant to this lookup.
+2. Require exactly one candidate whose `github.com/project-slug` annotation
+   equals the repository's full `owner/name`. Zero or multiple verified matches
+   leave the repository in `repo-only` mode and produce a diagnostic.
+3. Retain the returned Component's full entity reference and catalog revision.
+4. Follow Roadie's processed `partOf` and `ownedBy` relations and fetch the
+   referenced System and Group entities through the catalog API. Processed
+   relations are authoritative; do not independently reinterpret raw YAML.
+5. Require the Component and System ownership chain to be consistent, then
+   union Component, System, and Group documentation links.
+6. Expand explicit roots and apply their local exclusions.
+7. Canonicalize and de-duplicate by `{Confluence site ID, page ID}`, never by
    mutable URL.
-6. Retain every link's provenance for routing, diagnostics, and audit.
+8. Retain every link's provenance for routing, diagnostics, and audit.
 
 Child entities cannot remove inherited team or system pages. Exclusions remain
 controlled by the entity that declares the root.
@@ -692,7 +708,9 @@ numeric confidence score:
 ### Tests
 
 - Contract tests for inheritance, root expansion, exclusions, de-duplication,
-  ambiguous ownership, missing Roadie metadata, and per-team Slack routing.
+  repository-name Component lookup, repository annotation mismatches,
+  ambiguous Components, ambiguous ownership, missing Roadie metadata, and
+  per-team Slack routing.
 - Integration tests for paginated GitHub history, missed schedules, rewritten
   history, Confluence descendants, restricted pages, version conflicts,
   approval expiry, and concurrent proposals.
@@ -724,10 +742,12 @@ by pilot teams.
 
 ## Assumptions
 
-- Group and System entities are maintained in a central Roadie configuration
-  repository.
+- Component, Group, and System entities may be maintained in a central Roadie
+  configuration repository or alongside source code.
 - Roadie's catalog API is a runtime directory and cache; version-controlled
   entity YAML remains the configuration source.
+- GitHub repository names match their Roadie Component names. The full
+  `github.com/project-slug` annotation is still required as an integrity check.
 - Scheduled batches, rather than merge events, are the primary trigger.
 - Review and approval are routed to a canonical Slack channel configured on
   each owning Group.
@@ -744,7 +764,9 @@ by pilot teams.
 ## References
 
 - [Roadie: Modeling entities in the catalog](https://roadie.io/docs/catalog/modeling-entities/)
+- [Roadie: API overview](https://roadie.io/docs/api/overview/)
 - [Backstage: Descriptor format](https://backstage.io/docs/features/software-catalog/descriptor-format/)
+- [Backstage: Software Catalog API](https://backstage.io/docs/features/software-catalog/software-catalog-api/)
 - [Backstage: Entity references](https://backstage.io/docs/features/software-catalog/references/)
 - [Confluence Cloud REST API: Pages](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/)
 - [Confluence Cloud REST API: Descendants](https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-descendants/)
