@@ -8,19 +8,28 @@
   },
   "scripts": {
     "build": "eve build",
+    "db:generate": "prisma generate",
+    "db:migrate:deploy": "prisma migrate deploy",
     "dev": "eve dev",
+    "postinstall": "prisma generate",
     "start": "eve start",
-    "test": "node --test agent/lib/*.test.ts",
+    "test": "node --test",
     "typecheck": "tsc"
   },
   "dependencies": {
+    "@prisma/adapter-pg": "7.9.0",
+    "@prisma/client": "7.9.0",
     "@vercel/connect": "^0.3.3",
     "ai": "^7.0.0",
-    "eve": "0.24.3",
+    "eve": "0.26.2",
+    "pg": "8.16.3",
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@testcontainers/postgresql": "12.0.4",
     "@types/node": "24.x",
+    "@types/pg": "8.15.5",
+    "prisma": "7.9.0",
     "typescript": "7.0.2"
   },
   "overrides": {
@@ -29,5 +38,4 @@
   "engines": {
     "node": "24.x"
   }
-
 }

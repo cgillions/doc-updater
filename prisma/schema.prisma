@@ -1,0 +1,121 @@
+generator client {
+  provider               = "prisma-client"
+  output                 = "../agent/lib/database/generated"
+  moduleFormat           = "esm"
+  generatedFileExtension = "ts"
+  importFileExtension    = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ReviewJobMode {
+  INCREMENTAL
+  RECONCILIATION
+}
+
+enum ReviewJobStatus {
+  PENDING
+  LEASED
+  COMPLETED
+  FAILED
+}
+
+enum ReviewLeaseOutcome {
+  COMPLETED
+  FAILED
+  RECOVERED
+}
+
+model RepositoryRegistry {
+  id                     String            @id @default(uuid()) @db.Uuid
+  githubRepositoryId     String            @unique @map("github_repository_id")
+  repositoryFullName     String            @unique @map("repository_full_name")
+  defaultBranch          String            @map("default_branch")
+  defaultBranchHeadSha   String            @map("default_branch_head_sha")
+  isArchived             Boolean           @default(false) @map("is_archived")
+  isPaused               Boolean           @default(false) @map("is_paused")
+  nextReviewAt           DateTime?         @map("next_review_at") @db.Timestamptz(3)
+  lastInventoryRefreshAt DateTime          @map("last_inventory_refresh_at") @db.Timestamptz(3)
+  createdAt              DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  cursor                 RepositoryCursor?
+  reviewJobs             ReviewJob[]
+  auditEvents            AuditEvent[]
+
+  @@index([isArchived, isPaused, nextReviewAt])
+  @@map("repository_registry")
+}
+
+model RepositoryCursor {
+  repositoryId                String             @id @map("repository_id") @db.Uuid
+  lastSuccessfullyReviewedSha String?            @map("last_successfully_reviewed_sha")
+  lastSuccessfullyReviewedAt  DateTime?          @map("last_successfully_reviewed_at") @db.Timestamptz(3)
+  createdAt                   DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                   DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  repository                  RepositoryRegistry @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+
+  @@map("repository_cursors")
+}
+
+model ReviewJobClaimInvocation {
+  id              String      @id @db.Uuid
+  workerId        String      @map("worker_id")
+  requestedLimit  Int         @map("requested_limit")
+  leaseDurationMs Int         @map("lease_duration_ms")
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  reviewJobs      ReviewJob[]
+
+  @@map("review_job_claim_invocations")
+}
+
+model ReviewJob {
+  id                 String                    @id @default(uuid()) @db.Uuid
+  repositoryId       String                    @map("repository_id") @db.Uuid
+  claimInvocationId  String?                   @map("claim_invocation_id") @db.Uuid
+  baseSha            String?                   @map("base_sha")
+  headSha            String                    @map("head_sha")
+  mode               ReviewJobMode
+  deduplicationKey   String                    @unique @map("deduplication_key")
+  status             ReviewJobStatus           @default(PENDING)
+  attemptCount       Int                       @default(0) @map("attempt_count")
+  availableAt        DateTime                  @default(now()) @map("available_at") @db.Timestamptz(3)
+  leaseOwner         String?                   @map("lease_owner")
+  leaseToken         String?                   @map("lease_token") @db.Uuid
+  lastLeaseToken     String?                   @map("last_lease_token") @db.Uuid
+  lastLeaseOutcome   ReviewLeaseOutcome?       @map("last_lease_outcome")
+  leaseExpiresAt     DateTime?                 @map("lease_expires_at") @db.Timestamptz(3)
+  completedAt        DateTime?                 @map("completed_at") @db.Timestamptz(3)
+  failedAt           DateTime?                 @map("failed_at") @db.Timestamptz(3)
+  lastFailureCode    String?                   @map("last_failure_code")
+  lastFailureMessage String?                   @map("last_failure_message")
+  createdAt          DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  repository         RepositoryRegistry        @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+  claimInvocation    ReviewJobClaimInvocation? @relation(fields: [claimInvocationId], references: [id], onDelete: Restrict)
+  auditEvents        AuditEvent[]
+
+  @@index([status, availableAt, createdAt])
+  @@index([status, leaseExpiresAt])
+  @@index([claimInvocationId, status])
+  @@index([repositoryId, createdAt])
+  @@map("review_jobs")
+}
+
+model AuditEvent {
+  id             String             @id @default(uuid()) @db.Uuid
+  repositoryId   String             @map("repository_id") @db.Uuid
+  reviewJobId    String?            @map("review_job_id") @db.Uuid
+  eventType      String             @map("event_type")
+  idempotencyKey String             @unique @map("idempotency_key")
+  actorId        String?            @map("actor_id")
+  details        Json
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  repository     RepositoryRegistry @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+  reviewJob      ReviewJob?         @relation(fields: [reviewJobId], references: [id], onDelete: Restrict)
+
+  @@index([repositoryId, createdAt])
+  @@index([reviewJobId, createdAt])
+  @@map("audit_events")
+}
