@@ -9,7 +9,7 @@ import { createDatabaseClient, type DatabaseClient } from "./client.ts";
 import {
   ReviewJobClaimConflictError,
   ReviewJobLeaseConflictError,
-} from "./errors.ts";
+} from "../domain/review-jobs/errors.ts";
 import { ReviewJobStore } from "./review-job-store.ts";
 
 const BASE_SHA = "a".repeat(40);

@@ -8,13 +8,13 @@ import {
   ReviewJobClaimConflictError,
   ReviewJobLeaseConflictError,
   ReviewJobNotFoundError,
-} from "./errors.ts";
+} from "../domain/review-jobs/errors.ts";
 import {
   buildReviewJobDeduplicationKey,
   calculateLeaseExpiry,
   validateBatchSize,
   validateLeaseDuration,
-} from "./review-job-policy.ts";
+} from "../domain/review-jobs/review-job-policy.ts";
 
 /** Values required to enqueue one immutable repository review range. */
 export interface EnqueueReviewJobInput {

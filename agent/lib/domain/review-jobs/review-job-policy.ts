@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { ReviewJobMode } from "./generated/enums.ts";
+import type { ReviewJobMode } from "../../database/generated/enums.ts";
 
 /** Maximum number of jobs one database claim may lease. */
 export const MAX_REVIEW_JOB_BATCH_SIZE = 100;
