@@ -31,15 +31,17 @@ describe("ReviewJobStore with PostgreSQL", () => {
     const { PostgreSqlContainer } = await import("@testcontainers/postgresql");
     container = await new PostgreSqlContainer("postgres:17-alpine").start();
     const connectionString = container.getConnectionUri();
-    const migration = await readFile(
-      new URL(
-        "../../../prisma/migrations/202607220001_initial_control_plane/migration.sql",
-        import.meta.url,
-      ),
-      "utf8",
-    );
     const migrationPool = new Pool({ connectionString });
-    await migrationPool.query(migration);
+    for (const migrationPath of [
+      "../../../prisma/migrations/202607220001_initial_control_plane/migration.sql",
+      "../../../prisma/migrations/202607230001_repository_inventory_access/migration.sql",
+    ]) {
+      const migration = await readFile(
+        new URL(migrationPath, import.meta.url),
+        "utf8",
+      );
+      await migrationPool.query(migration);
+    }
     await migrationPool.end();
 
     database = createDatabaseClient({ connectionString });
@@ -464,6 +466,37 @@ describe("ReviewJobStore with PostgreSQL", () => {
 
     const claimed = await store.claimDue({
       claimId: claimId(21),
+      workerId: "worker-one",
+      limit: 10,
+      leaseForMs: 60_000,
+      now,
+    });
+
+    assert.equal(claimed.length, 0);
+  });
+
+  it("excludes repositories no longer accessible to the GitHub App", async () => {
+    const now = new Date("2026-07-22T09:00:00.000Z");
+    const inaccessibleRepo = await database.repositoryRegistry.create({
+      data: {
+        githubRepositoryId: "999003",
+        repositoryFullName: "example/inaccessible-repo",
+        defaultBranch: "main",
+        defaultBranchHeadSha: HEAD_SHA,
+        isAccessible: false,
+        lastInventoryRefreshAt: new Date("2026-07-22T08:00:00.000Z"),
+      },
+    });
+    await store.enqueue({
+      repositoryId: inaccessibleRepo.id,
+      baseSha: BASE_SHA,
+      headSha: HEAD_SHA,
+      mode: "INCREMENTAL",
+      availableAt: now,
+    });
+
+    const claimed = await store.claimDue({
+      claimId: claimId(22),
       workerId: "worker-one",
       limit: 10,
       leaseForMs: 60_000,

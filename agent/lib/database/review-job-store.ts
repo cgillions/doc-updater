@@ -218,6 +218,7 @@ export class ReviewJobStore {
             ON repositories.id = jobs.repository_id
           WHERE jobs.status = 'PENDING'::"ReviewJobStatus"
             AND jobs.available_at <= ${now}
+            AND repositories.is_accessible = true
             AND repositories.is_archived = false
             AND repositories.is_paused = false
           ORDER BY jobs.available_at, jobs.created_at, jobs.id

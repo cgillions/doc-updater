@@ -1,6 +1,8 @@
 import { getToken } from "@vercel/connect";
 import { z } from "zod";
 
+import type { RepositoryInventoryEntry } from "../domain/repositories/repository-inventory.ts";
+
 const GITHUB_API_VERSION = "2026-03-10";
 const INSTALLATION_PAGE_SIZE = 100;
 const DEFAULT_HEAD_REQUEST_CONCURRENCY = 8;
@@ -26,15 +28,6 @@ const gitReferenceSchema = z.object({
 });
 
 type InstallationRepository = z.infer<typeof installationRepositorySchema>;
-
-/** Repository metadata captured from one complete GitHub App inventory. */
-export interface GitHubRepositoryInventoryEntry {
-  githubRepositoryId: string;
-  repositoryFullName: string;
-  defaultBranch: string;
-  defaultBranchHeadSha: string;
-  isArchived: boolean;
-}
 
 /** Supplies a short-lived GitHub App installation access token. */
 export type GitHubAccessTokenProvider = () => Promise<string>;
@@ -88,7 +81,7 @@ export class GitHubControlPlaneClient {
    * @throws If token acquisition or any GitHub response fails or is invalid.
    */
   async listInstallationRepositories(): Promise<
-    GitHubRepositoryInventoryEntry[]
+    RepositoryInventoryEntry[]
   > {
     const token = await this.getAccessToken();
     if (token.length === 0) {

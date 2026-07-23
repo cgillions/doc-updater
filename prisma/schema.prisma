@@ -34,6 +34,7 @@ model RepositoryRegistry {
   repositoryFullName     String            @unique @map("repository_full_name")
   defaultBranch          String            @map("default_branch")
   defaultBranchHeadSha   String            @map("default_branch_head_sha")
+  isAccessible           Boolean           @default(true) @map("is_accessible")
   isArchived             Boolean           @default(false) @map("is_archived")
   isPaused               Boolean           @default(false) @map("is_paused")
   nextReviewAt           DateTime?         @map("next_review_at") @db.Timestamptz(3)
@@ -44,7 +45,7 @@ model RepositoryRegistry {
   reviewJobs             ReviewJob[]
   auditEvents            AuditEvent[]
 
-  @@index([isArchived, isPaused, nextReviewAt])
+  @@index([isAccessible, isArchived, isPaused, nextReviewAt], map: "repository_registry_scheduling_eligibility_idx")
   @@map("repository_registry")
 }
 
