@@ -342,6 +342,8 @@ interface RepositoryRegistryEntry {
   repositoryId: string;
   repositoryFullName: string;
   defaultBranch: string;
+  defaultBranchHeadSha: string;
+  isAccessible: boolean;
   isArchived: boolean;
 
   componentRef: string | null;

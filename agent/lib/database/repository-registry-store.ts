@@ -1,12 +1,7 @@
 import { Prisma, type PrismaClient } from "./generated/client.ts";
 
+import type { RepositoryInventorySyncResult } from "../application/repositories/synchronize-repository-inventory.ts";
 import type { RepositoryInventoryEntry } from "../domain/repositories/repository-inventory.ts";
-
-/** Summary of the registry state after an inventory reconciliation. */
-export interface RepositoryRegistrySyncResult {
-  accessibleRepositoryCount: number;
-  inaccessibleRepositoryCount: number;
-}
 
 /**
  * Reconciles complete GitHub App inventory snapshots into PostgreSQL.
@@ -31,9 +26,9 @@ export class RepositoryRegistryStore {
    * @returns Counts of currently accessible and inaccessible repositories.
    */
   async synchronize(
-    repositories: RepositoryInventoryEntry[],
+    repositories: readonly RepositoryInventoryEntry[],
     refreshedAt: Date = new Date(),
-  ): Promise<RepositoryRegistrySyncResult> {
+  ): Promise<RepositoryInventorySyncResult> {
     validateSnapshot(repositories, refreshedAt);
     const inventoryJson = JSON.stringify(
       repositories.map((repository) => ({
@@ -119,7 +114,7 @@ export class RepositoryRegistryStore {
 }
 
 function validateSnapshot(
-  repositories: RepositoryInventoryEntry[],
+  repositories: readonly RepositoryInventoryEntry[],
   refreshedAt: Date,
 ): void {
   if (Number.isNaN(refreshedAt.getTime())) {
