@@ -16,6 +16,9 @@ const documentationTargetSchema = z.object({
   declarations: z.array(documentationDeclarationSchema).min(1),
 });
 
+/** Validated set of canonical Confluence targets assigned to a review job. */
+export const documentationScopeSchema = z.array(documentationTargetSchema);
+
 /** Validated context exposed for one active, session-bound review job. */
 export const reviewJobContextSchema = z.object({
   reviewJobId: z.uuid(),
@@ -38,7 +41,7 @@ export const reviewJobContextSchema = z.object({
     catalogRevision: z.string().min(1).nullable(),
     configurationHash: z.string().regex(/^[0-9a-f]{64}$/),
   }),
-  documentationScope: z.array(documentationTargetSchema),
+  documentationScope: documentationScopeSchema,
 });
 
 /** JSON-safe repository context returned by `load_review_job`. */

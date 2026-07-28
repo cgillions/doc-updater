@@ -34,6 +34,18 @@ enum RoadieScopeStatus {
   REPO_ONLY
 }
 
+enum ReviewTargetKind {
+  REPOSITORY
+  CONFLUENCE
+}
+
+enum ReviewJobOutcome {
+  NO_CHANGE
+  IN_SYNC
+  PROPOSAL_CREATED
+  INCOMPLETE
+}
+
 model RepositoryRegistry {
   id                     String            @id @default(uuid()) @db.Uuid
   githubRepositoryId     String            @unique @map("github_repository_id")
@@ -59,6 +71,8 @@ model RepositoryRegistry {
   updatedAt              DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
   cursor                 RepositoryCursor?
   reviewJobs             ReviewJob[]
+  evidenceClaims         EvidenceClaim[]
+  changeProposals        ChangeProposal[]
   auditEvents            AuditEvent[]
 
   @@index([isAccessible, isArchived, isPaused, nextReviewAt], map: "repository_registry_scheduling_eligibility_idx")
@@ -108,10 +122,15 @@ model ReviewJob {
   failedAt           DateTime?                 @map("failed_at") @db.Timestamptz(3)
   lastFailureCode    String?                   @map("last_failure_code")
   lastFailureMessage String?                   @map("last_failure_message")
+  outcome            ReviewJobOutcome?
+  outcomeSummary     String?                   @map("outcome_summary")
+  cursorAdvancedAt   DateTime?                 @map("cursor_advanced_at") @db.Timestamptz(3)
   createdAt          DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
   repository         RepositoryRegistry        @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
   claimInvocation    ReviewJobClaimInvocation? @relation(fields: [claimInvocationId], references: [id], onDelete: Restrict)
+  evidenceClaims     EvidenceClaim[]
+  changeProposals    ChangeProposal[]
   auditEvents        AuditEvent[]
 
   @@index([status, availableAt, createdAt])
@@ -119,6 +138,57 @@ model ReviewJob {
   @@index([claimInvocationId, status])
   @@index([repositoryId, createdAt])
   @@map("review_jobs")
+}
+
+model EvidenceClaim {
+  id                       String                   @id @default(uuid()) @db.Uuid
+  repositoryId             String                   @map("repository_id") @db.Uuid
+  reviewJobId              String                   @map("review_job_id") @db.Uuid
+  digest                   String                   @unique
+  claimText                String                   @map("claim_text")
+  implementationSha        String                   @map("implementation_sha")
+  implementationReferences Json                     @map("implementation_references")
+  targetKind               ReviewTargetKind         @map("target_kind")
+  documentation            Json
+  confidenceReasons        Json                     @map("confidence_reasons")
+  createdAt                DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  repository               RepositoryRegistry       @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+  reviewJob                ReviewJob                @relation(fields: [reviewJobId], references: [id], onDelete: Restrict)
+  proposalLinks            ChangeProposalEvidence[]
+
+  @@index([reviewJobId, createdAt])
+  @@index([repositoryId, createdAt])
+  @@map("evidence_claims")
+}
+
+model ChangeProposal {
+  id                    String                   @id @default(uuid()) @db.Uuid
+  repositoryId          String                   @map("repository_id") @db.Uuid
+  reviewJobId           String                   @map("review_job_id") @db.Uuid
+  digest                String                   @unique
+  targetKind            ReviewTargetKind         @map("target_kind")
+  target                Json
+  repositoryBaselineSha String?                  @map("repository_baseline_sha")
+  patch                 Json
+  createdAt             DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  repository            RepositoryRegistry       @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+  reviewJob             ReviewJob                @relation(fields: [reviewJobId], references: [id], onDelete: Restrict)
+  evidenceLinks         ChangeProposalEvidence[]
+
+  @@index([reviewJobId, createdAt])
+  @@index([repositoryId, createdAt])
+  @@map("change_proposals")
+}
+
+model ChangeProposalEvidence {
+  changeProposalId String         @map("change_proposal_id") @db.Uuid
+  evidenceClaimId  String         @map("evidence_claim_id") @db.Uuid
+  changeProposal   ChangeProposal @relation(fields: [changeProposalId], references: [id], onDelete: Restrict)
+  evidenceClaim    EvidenceClaim  @relation(fields: [evidenceClaimId], references: [id], onDelete: Restrict)
+
+  @@id([changeProposalId, evidenceClaimId])
+  @@index([evidenceClaimId])
+  @@map("change_proposal_evidence")
 }
 
 model AuditEvent {
