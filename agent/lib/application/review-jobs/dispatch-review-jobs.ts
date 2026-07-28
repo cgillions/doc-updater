@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 
 import type {
   ClaimDueInput,
-  CompleteReviewJobInput,
   FailReviewJobInput,
   RecoverExpiredLeasesInput,
 } from "../../database/review-job-store.ts";
@@ -31,7 +30,7 @@ export interface ReviewDispatchQueue {
     input: RecoverExpiredLeasesInput,
   ): Promise<unknown[]>;
   claimDue(input: ClaimDueInput): Promise<DispatchableReviewJob[]>;
-  complete(input: CompleteReviewJobInput): Promise<unknown>;
+  hasRecordedOutcome(jobId: string, leaseToken: string): Promise<boolean>;
   fail(input: FailReviewJobInput): Promise<unknown>;
 }
 
@@ -186,11 +185,11 @@ export class ReviewJobDispatcher {
         reviewJobId: job.id,
         slackChannelId,
       });
-      await this.queue.complete({
-        jobId: job.id,
-        leaseToken: job.leaseToken,
-        completedAt: this.clock(),
-      });
+      if (!(await this.queue.hasRecordedOutcome(job.id, job.leaseToken))) {
+        throw new Error(
+          "The review session settled without recording a terminal outcome.",
+        );
+      }
       return { completed: true, sessionId: session.sessionId };
     } catch (error) {
       await this.failJob(

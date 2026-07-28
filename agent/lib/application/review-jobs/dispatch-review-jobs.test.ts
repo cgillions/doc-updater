@@ -31,8 +31,8 @@ describe("ReviewJobDispatcher", () => {
           }
           return [job];
         },
-        async complete() {
-          return {};
+        async hasRecordedOutcome() {
+          return true;
         },
         async fail() {
           return {};
@@ -82,9 +82,9 @@ describe("ReviewJobDispatcher", () => {
           requestedLimit = input.limit;
           return jobs;
         },
-        async complete(input) {
-          completed.push(input.jobId);
-          return {};
+        async hasRecordedOutcome(jobId) {
+          completed.push(jobId);
+          return true;
         },
         async fail(input) {
           failed.push(input.jobId);
@@ -154,9 +154,9 @@ describe("ReviewJobDispatcher", () => {
         async claimDue() {
           return jobs;
         },
-        async complete(input) {
-          completed.push(input.jobId);
-          return {};
+        async hasRecordedOutcome(jobId) {
+          completed.push(jobId);
+          return true;
         },
         async fail(input) {
           failures.push({ code: input.code, jobId: input.jobId });
@@ -186,6 +186,54 @@ describe("ReviewJobDispatcher", () => {
     ]);
     assert.equal(result.completedCount, 1);
     assert.equal(result.failedCount, 1);
+  });
+
+  it("requeues a settled session that omitted its terminal outcome", async () => {
+    const job = claimedJob("job-1", "repository-1");
+    const failures: Array<{ code: string; message: string }> = [];
+    const dispatcher = new ReviewJobDispatcher({
+      enqueuer: {
+        enqueue: async () => ({ candidateCount: 1, jobIds: [job.id] }),
+      },
+      queue: {
+        async recoverExpiredLeases() {
+          return [];
+        },
+        async claimDue() {
+          return [job];
+        },
+        async hasRecordedOutcome() {
+          return false;
+        },
+        async fail(input) {
+          failures.push({ code: input.code, message: input.message });
+          return {};
+        },
+      },
+      routes: {
+        loadDispatchRoutes: async () => [
+          { reviewJobId: job.id, slackChannelId: "C0123456789" },
+        ],
+      },
+      receiver: {
+        start: async () => ({ sessionId: "session-1" }),
+      },
+      config: dispatcherConfig(),
+      createId: idSequence("claim-id", "worker-id"),
+      clock: () => NOW,
+    });
+
+    const result = await dispatcher.dispatch();
+
+    assert.equal(result.completedCount, 0);
+    assert.equal(result.failedCount, 1);
+    assert.deepEqual(failures, [
+      {
+        code: "REVIEW_SESSION_FAILED",
+        message:
+          "The review session settled without recording a terminal outcome.",
+      },
+    ]);
   });
 });
 

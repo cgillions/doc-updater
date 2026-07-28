@@ -10,6 +10,7 @@ import { createDatabaseClient, type DatabaseClient } from "./client.ts";
 import { ChangeProposalStore } from "./change-proposal-store.ts";
 import { EvidenceClaimStore } from "./evidence-claim-store.ts";
 import { ReviewCompletionStore } from "./review-completion-store.ts";
+import { ReviewJobStore } from "./review-job-store.ts";
 
 const BASE_SHA = "a".repeat(40);
 const HEAD_SHA = "b".repeat(40);
@@ -197,8 +198,6 @@ describe("review evidence and proposal stores with PostgreSQL", () => {
       "100",
       { baseSha: null },
     );
-    await evidenceStore.record(job.id, repositoryEvidenceInput());
-
     const result = await completionStore.complete(job.id, {
       outcome: "incomplete",
       summary: "A required documentation baseline could not be verified.",
@@ -210,6 +209,13 @@ describe("review evidence and proposal stores with PostgreSQL", () => {
         where: { repositoryId: job.repositoryId },
       }),
       null,
+    );
+    assert.equal(
+      await new ReviewJobStore(database).hasRecordedOutcome(
+        job.id,
+        LEASE_TOKEN,
+      ),
+      true,
     );
   });
 

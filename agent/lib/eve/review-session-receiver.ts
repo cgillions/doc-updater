@@ -4,14 +4,14 @@ import type { ScheduleHandlerArgs } from "eve/schedules";
 import slack from "../../channels/slack.ts";
 import type { ReviewSessionReceiver } from "../application/review-jobs/dispatch-review-jobs.ts";
 
-const DIAGNOSTIC_MESSAGE =
-  "Load the repository review assigned to this session and report its " +
-  "diagnostic status. Do not assess drift or create artifacts.";
+const REVIEW_MESSAGE =
+  "Run the repository-documentation shadow review assigned to this session. " +
+  "Persist its evidence, any verified proposal, and exactly one terminal outcome.";
 
 /**
  * Adapts Eve's proactive Slack receive contract to the review dispatcher.
  *
- * The returned receiver waits for the initial diagnostic turn to settle so a
+ * The returned receiver waits for the initial review turn to settle so a
  * successful delivery is not mistaken for a successfully completed turn.
  */
 export function createSlackReviewSessionReceiver(
@@ -21,7 +21,7 @@ export function createSlackReviewSessionReceiver(
   return {
     async start({ reviewJobId, slackChannelId }) {
       const session = await receive(slack, {
-        message: DIAGNOSTIC_MESSAGE,
+        message: REVIEW_MESSAGE,
         target: { channelId: slackChannelId },
         auth: {
           ...appAuth,

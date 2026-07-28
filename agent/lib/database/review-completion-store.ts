@@ -73,9 +73,9 @@ export class ReviewCompletionStore {
       const evidenceCount = await transaction.evidenceClaim.count({
         where: { reviewJobId: job.id },
       });
-      if (evidenceCount === 0) {
+      if (parsed.outcome !== "incomplete" && evidenceCount === 0) {
         throw new ReviewRecordConflictError(
-          "A review job requires persisted implementation evidence before completion.",
+          "A successful review requires persisted implementation evidence before completion.",
         );
       }
       if (parsed.outcome === "proposal-created") {

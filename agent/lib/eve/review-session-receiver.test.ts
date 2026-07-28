@@ -45,8 +45,9 @@ describe("createSlackReviewSessionReceiver", () => {
     assert.deepEqual(requests, [
       {
         message:
-          "Load the repository review assigned to this session and report " +
-          "its diagnostic status. Do not assess drift or create artifacts.",
+          "Run the repository-documentation shadow review assigned to this " +
+          "session. Persist its evidence, any verified proposal, and exactly " +
+          "one terminal outcome.",
         target: { channelId: "C0123456789" },
         auth: {
           authenticator: "app",
@@ -59,8 +60,9 @@ describe("createSlackReviewSessionReceiver", () => {
       },
       {
         message:
-          "Load the repository review assigned to this session and report " +
-          "its diagnostic status. Do not assess drift or create artifacts.",
+          "Run the repository-documentation shadow review assigned to this " +
+          "session. Persist its evidence, any verified proposal, and exactly " +
+          "one terminal outcome.",
         target: { channelId: "C9876543210" },
         auth: {
           authenticator: "app",

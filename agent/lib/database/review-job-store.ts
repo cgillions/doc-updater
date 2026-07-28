@@ -273,6 +273,32 @@ export class ReviewJobStore {
   }
 
   /**
+   * Checks whether the supplied lease produced a persisted review outcome.
+   *
+   * @returns `true` only after `complete_review_job` completed this exact lease.
+   */
+  async hasRecordedOutcome(
+    jobId: string,
+    leaseToken: string,
+  ): Promise<boolean> {
+    const job = await this.database.reviewJob.findUnique({
+      where: { id: jobId },
+      select: {
+        status: true,
+        outcome: true,
+        lastLeaseToken: true,
+        lastLeaseOutcome: true,
+      },
+    });
+    return (
+      job?.status === "COMPLETED" &&
+      job.outcome !== null &&
+      job.lastLeaseToken === leaseToken &&
+      job.lastLeaseOutcome === "COMPLETED"
+    );
+  }
+
+  /**
    * Completes the job held by the supplied lease token.
    *
    * Replaying the same successful transition returns the completed job.
