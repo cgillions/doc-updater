@@ -24,7 +24,10 @@ dispatch:
 The dispatched session reports a diagnostic after loading its immutable SHA
 range and resolved documentation scope. It does not inspect implementation or
 documentation content, assess drift, request approval, or create artifacts.
-Those capabilities are introduced by later work packages.
+Trusted tools can now persist immutable evidence, baseline-bound proposals,
+and terminal review outcomes for the assigned job, but the diagnostic
+instructions do not invoke them yet. Retrieval and shadow review behavior are
+introduced by later work packages.
 
 ## Development
 

@@ -54,17 +54,7 @@ export class AssignedReviewJobLoader {
    * @returns Validated immutable job and repository scope.
    */
   async load(auth: ReviewSessionAuth): Promise<ReviewJobContext> {
-    const initiator = auth.initiator;
-    const reviewJobId = initiator?.attributes.reviewJobId;
-    if (
-      initiator?.authenticator !== "app" ||
-      initiator.principalId !== "eve:app" ||
-      initiator.principalType !== "runtime" ||
-      typeof reviewJobId !== "string" ||
-      !isUuid(reviewJobId)
-    ) {
-      throw new UntrustedReviewSessionError();
-    }
+    const reviewJobId = resolveAssignedReviewJobId(auth);
 
     const context = await this.source.loadActive(reviewJobId);
     if (!context) {
@@ -72,6 +62,32 @@ export class AssignedReviewJobLoader {
     }
     return context;
   }
+}
+
+/**
+ * Resolves the opaque job ID from the durable Eve app initiator.
+ *
+ * `auth.current` is intentionally ignored because it can become a Slack user
+ * on later turns.
+ *
+ * @returns The UUID assigned by the deterministic schedule.
+ * @throws {UntrustedReviewSessionError} If the session is not schedule-bound.
+ */
+export function resolveAssignedReviewJobId(
+  auth: ReviewSessionAuth,
+): string {
+  const initiator = auth.initiator;
+  const reviewJobId = initiator?.attributes.reviewJobId;
+  if (
+    initiator?.authenticator !== "app" ||
+    initiator.principalId !== "eve:app" ||
+    initiator.principalType !== "runtime" ||
+    typeof reviewJobId !== "string" ||
+    !isUuid(reviewJobId)
+  ) {
+    throw new UntrustedReviewSessionError();
+  }
+  return reviewJobId;
 }
 
 function isUuid(value: string): boolean {
