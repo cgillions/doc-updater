@@ -110,6 +110,7 @@ model ReviewJob {
   headSha              String                         @map("head_sha")
   mode                 ReviewJobMode
   deduplicationKey     String                         @unique @map("deduplication_key")
+  attemptNumber        Int                            @default(1) @map("attempt_number")
   status               ReviewJobStatus                @default(PENDING)
   attemptCount         Int                            @default(0) @map("attempt_count")
   availableAt          DateTime                       @default(now()) @map("available_at") @db.Timestamptz(3)
@@ -138,6 +139,7 @@ model ReviewJob {
   @@index([status, leaseExpiresAt])
   @@index([claimInvocationId, status])
   @@index([repositoryId, createdAt])
+  @@index([repositoryId, baseSha, headSha, mode, attemptNumber], map: "review_jobs_repository_review_attempt_idx")
   @@map("review_jobs")
 }
 

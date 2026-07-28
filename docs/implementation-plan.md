@@ -316,9 +316,12 @@ remain out of scope. The model cannot search outside resolved page IDs.
 - A repository-driven Confluence proposal stores one exact, uniquely matched
   native-storage fragment replacement, implementation evidence, and exact page
   baseline.
+- An incomplete review preserves its terminal attempt and unchanged cursor;
+  the next schedule creates exactly one new attempt for the same SHA range.
 
 **Verification:** Focused client, scope, and store tests cover restricted
-pages, stale versions, out-of-scope IDs, structured content, and shared pages.
+pages, stale versions, out-of-scope IDs, structured content, shared pages, and
+concurrent retry enqueue after an incomplete outcome.
 Run the production agent against one exact sandbox page in suggestion-only
 mode and inspect the persisted baseline, evidence, proposal, and outcome.
 

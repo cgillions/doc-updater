@@ -27,6 +27,7 @@ describe("RepositoryRegistryStore with PostgreSQL", () => {
       "../../../prisma/migrations/202607230001_repository_inventory_access/migration.sql",
       "../../../prisma/migrations/202607280001_roadie_scope_projection/migration.sql",
       "../../../prisma/migrations/202607290001_review_evidence_and_proposals/migration.sql",
+      "../../../prisma/migrations/202607310001_review_job_retry_attempts/migration.sql",
     ]) {
       const migration = await readFile(
         new URL(migrationPath, import.meta.url),

@@ -313,7 +313,11 @@ different job.
 Delivery is at least once. Review execution and artifact creation must
 therefore be idempotent by review job ID, repository SHA, and proposal
 baseline. A later schedule invocation may reclaim an expired lease without
-producing duplicate pull requests or Confluence drafts.
+producing duplicate pull requests or Confluence drafts or creating another
+execution attempt. A terminal `incomplete` outcome preserves its job and
+evidence without advancing the repository cursor. The next schedule invocation
+creates one new attempt for that unchanged SHA range; concurrent dispatchers
+serialize this decision so they reuse the same retry attempt.
 
 A batch summary should be generated from persisted job outcomes by a separate
 summary schedule or completion process. A parent agent must not retain all

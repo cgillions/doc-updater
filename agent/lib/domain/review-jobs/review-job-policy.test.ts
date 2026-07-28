@@ -26,6 +26,18 @@ describe("review job policy", () => {
       buildReviewJobDeduplicationKey(input),
       buildReviewJobDeduplicationKey({ ...input, baseSha: null }),
     );
+    assert.notEqual(
+      buildReviewJobDeduplicationKey(input),
+      buildReviewJobDeduplicationKey(input, 2),
+    );
+    assert.equal(
+      buildReviewJobDeduplicationKey(input, 2),
+      buildReviewJobDeduplicationKey(input, 2),
+    );
+    assert.throws(
+      () => buildReviewJobDeduplicationKey(input, 0),
+      /positive integer/,
+    );
   });
 
   it("accepts only bounded positive batch sizes", () => {

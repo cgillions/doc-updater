@@ -15,12 +15,8 @@ export interface ReviewJobIdentity {
   mode: ReviewJobMode;
 }
 
-/**
- * Builds the stable key used to deduplicate review-job enqueue operations.
- *
- * @returns A versioned SHA-256 digest of the repository, SHA range, and mode.
- */
-export function buildReviewJobDeduplicationKey(
+/** Builds the stable identity shared by every attempt at one review range. */
+export function buildReviewJobRangeKey(
   identity: ReviewJobIdentity,
 ): string {
   return createHash("sha256")
@@ -33,6 +29,27 @@ export function buildReviewJobDeduplicationKey(
         identity.mode,
       ]),
     )
+    .digest("hex");
+}
+
+/**
+ * Builds the stable key used to deduplicate one review-range attempt.
+ *
+ * Attempt one retains the original key format for persisted-job compatibility.
+ */
+export function buildReviewJobDeduplicationKey(
+  identity: ReviewJobIdentity,
+  attemptNumber = 1,
+): string {
+  if (!Number.isInteger(attemptNumber) || attemptNumber < 1) {
+    throw new RangeError("Review job attempt number must be a positive integer.");
+  }
+  const rangeKey = buildReviewJobRangeKey(identity);
+  if (attemptNumber === 1) {
+    return rangeKey;
+  }
+  return createHash("sha256")
+    .update(JSON.stringify(["review-job-attempt-v1", rangeKey, attemptNumber]))
     .digest("hex");
 }
 

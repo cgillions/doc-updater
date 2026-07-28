@@ -37,6 +37,7 @@ describe("ReviewJobStore with PostgreSQL", () => {
       "../../../prisma/migrations/202607230001_repository_inventory_access/migration.sql",
       "../../../prisma/migrations/202607280001_roadie_scope_projection/migration.sql",
       "../../../prisma/migrations/202607290001_review_evidence_and_proposals/migration.sql",
+      "../../../prisma/migrations/202607310001_review_job_retry_attempts/migration.sql",
     ]) {
       const migration = await readFile(
         new URL(migrationPath, import.meta.url),
@@ -89,6 +90,71 @@ describe("ReviewJobStore with PostgreSQL", () => {
     ]);
 
     assert.equal(first.id, replay.id);
+    assert.equal(await database.reviewJob.count(), 1);
+    assert.equal(await database.auditEvent.count(), 1);
+  });
+
+  it("creates one new attempt after an incomplete review", async () => {
+    const input = {
+      repositoryId,
+      baseSha: BASE_SHA,
+      headSha: HEAD_SHA,
+      mode: "INCREMENTAL" as const,
+      availableAt: new Date("2026-07-22T09:00:00.000Z"),
+    };
+    const first = await store.enqueue(input);
+    await database.reviewJob.update({
+      where: { id: first.id },
+      data: {
+        status: "COMPLETED",
+        outcome: "INCOMPLETE",
+        outcomeSummary: "The documentation source was unavailable.",
+        completedAt: new Date("2026-07-22T09:05:00.000Z"),
+        lastLeaseToken: claimId(100),
+        lastLeaseOutcome: "COMPLETED",
+      },
+    });
+
+    const [retry, replay] = await Promise.all([
+      store.enqueue(input),
+      store.enqueue(input),
+    ]);
+
+    assert.notEqual(retry.id, first.id);
+    assert.equal(replay.id, retry.id);
+    assert.equal(first.attemptNumber, 1);
+    assert.equal(retry.attemptNumber, 2);
+    assert.equal(retry.status, "PENDING");
+    assert.equal(await database.reviewJob.count(), 2);
+    assert.equal(await database.auditEvent.count(), 2);
+  });
+
+  it("does not retry a successfully completed review range", async () => {
+    const input = {
+      repositoryId,
+      baseSha: BASE_SHA,
+      headSha: HEAD_SHA,
+      mode: "INCREMENTAL" as const,
+      availableAt: new Date("2026-07-22T09:00:00.000Z"),
+    };
+    const completed = await store.enqueue(input);
+    await database.reviewJob.update({
+      where: { id: completed.id },
+      data: {
+        status: "COMPLETED",
+        outcome: "IN_SYNC",
+        outcomeSummary: "The documentation is current.",
+        completedAt: new Date("2026-07-22T09:05:00.000Z"),
+        cursorAdvancedAt: new Date("2026-07-22T09:05:00.000Z"),
+        lastLeaseToken: claimId(101),
+        lastLeaseOutcome: "COMPLETED",
+      },
+    });
+
+    const replay = await store.enqueue(input);
+
+    assert.equal(replay.id, completed.id);
+    assert.equal(replay.attemptNumber, 1);
     assert.equal(await database.reviewJob.count(), 1);
     assert.equal(await database.auditEvent.count(), 1);
   });

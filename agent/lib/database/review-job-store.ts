@@ -11,6 +11,7 @@ import {
 } from "../domain/review-jobs/errors.ts";
 import {
   buildReviewJobDeduplicationKey,
+  buildReviewJobRangeKey,
   calculateLeaseExpiry,
   validateBatchSize,
   validateLeaseDuration,
@@ -67,10 +68,6 @@ interface ClaimInvocationRow {
   id: string;
 }
 
-interface EnqueuedJobRow {
-  id: string;
-}
-
 interface RecoveredJobRow {
   id: string;
   repositoryId: string;
@@ -98,51 +95,57 @@ export class ReviewJobStore {
   }
 
   /**
-   * Enqueues a review unless its repository, SHA range, and mode already exist.
+   * Enqueues a review unless its range already has a current attempt.
+   *
+   * A completed incomplete attempt permits one new job for the same immutable
+   * range. The advisory lock serializes concurrent enqueue decisions without
+   * mutating or discarding the prior attempt's evidence and audit history.
    *
    * @returns The new or previously enqueued job.
    */
   async enqueue(input: EnqueueReviewJobInput): Promise<ReviewJob> {
-    const deduplicationKey = buildReviewJobDeduplicationKey(input);
+    const rangeKey = buildReviewJobRangeKey(input);
 
     return this.database.$transaction(async (transaction) => {
       const availableAt = input.availableAt ?? new Date();
-      // The DO UPDATE with a no-op assignment is intentional: PostgreSQL's
-      // INSERT ... ON CONFLICT ... RETURNING does not return the existing row
-      // on a pure DO NOTHING. The self-assignment triggers the RETURNING clause
-      // for both the insert and the conflict path without changing data.
-      const [enqueued] = await transaction.$queryRaw<EnqueuedJobRow[]>(Prisma.sql`
-        INSERT INTO review_jobs (
-          id,
-          repository_id,
-          base_sha,
-          head_sha,
-          mode,
-          deduplication_key,
-          available_at,
-          created_at,
-          updated_at
-        )
-        VALUES (
-          gen_random_uuid(),
-          ${input.repositoryId}::uuid,
-          ${input.baseSha},
-          ${input.headSha},
-          ${input.mode}::"ReviewJobMode",
-          ${deduplicationKey},
-          ${availableAt},
-          CURRENT_TIMESTAMP,
-          CURRENT_TIMESTAMP
-        )
-        ON CONFLICT (deduplication_key)
-        DO UPDATE SET deduplication_key = EXCLUDED.deduplication_key
-        RETURNING id
+      await transaction.$queryRaw(Prisma.sql`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${rangeKey}, 0)
+        )::text AS locked
       `);
-      if (!enqueued) {
-        throw new Error("Review job enqueue did not return a job ID.");
+      const latestAttempt = await transaction.reviewJob.findFirst({
+        where: {
+          repositoryId: input.repositoryId,
+          baseSha: input.baseSha,
+          headSha: input.headSha,
+          mode: input.mode,
+        },
+        orderBy: { attemptNumber: "desc" },
+      });
+      if (
+        latestAttempt &&
+        !(
+          latestAttempt.status === "COMPLETED" &&
+          latestAttempt.outcome === "INCOMPLETE"
+        )
+      ) {
+        return latestAttempt;
       }
-      const job = await transaction.reviewJob.findUniqueOrThrow({
-        where: { id: enqueued.id },
+      const attemptNumber = (latestAttempt?.attemptNumber ?? 0) + 1;
+      const deduplicationKey = buildReviewJobDeduplicationKey(
+        input,
+        attemptNumber,
+      );
+      const job = await transaction.reviewJob.create({
+        data: {
+          repositoryId: input.repositoryId,
+          baseSha: input.baseSha,
+          headSha: input.headSha,
+          mode: input.mode,
+          deduplicationKey,
+          attemptNumber,
+          availableAt,
+        },
       });
 
       await recordAuditEvent(transaction, {
@@ -154,6 +157,7 @@ export class ReviewJobStore {
           baseSha: job.baseSha,
           headSha: job.headSha,
           mode: job.mode,
+          attemptNumber: job.attemptNumber,
         },
       });
       return job;
