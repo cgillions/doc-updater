@@ -188,6 +188,7 @@ model EvidenceClaim {
   claimText                String                   @map("claim_text")
   implementationSha        String                   @map("implementation_sha")
   implementationReferences Json                     @map("implementation_references")
+  behaviorComparisons      Json                     @map("behavior_comparisons")
   targetKind               ReviewTargetKind         @map("target_kind")
   documentation            Json
   confidenceReasons        Json                     @map("confidence_reasons")

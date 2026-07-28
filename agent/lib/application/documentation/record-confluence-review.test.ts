@@ -33,6 +33,7 @@ describe("AssignedConfluenceReviewRecorder", () => {
         candidateId: CANDIDATE_ID,
         claim: "Retry behavior is outdated.",
         implementationReferences: [{ path: "src/retry.ts" }],
+        behaviorComparisons: [contradictoryRetryComparison()],
         confidenceReasons: ["The implementation disables retries."],
       },
       {
@@ -48,6 +49,7 @@ describe("AssignedConfluenceReviewRecorder", () => {
       input: {
         claim: "Retry behavior is outdated.",
         implementationReferences: [{ path: "src/retry.ts" }],
+        behaviorComparisons: [contradictoryRetryComparison()],
         confidenceReasons: ["The implementation disables retries."],
         documentation: {
           kind: "confluence",
@@ -120,6 +122,7 @@ describe("AssignedConfluenceReviewRecorder", () => {
           candidateId: CANDIDATE_ID,
           claim: "Claim",
           implementationReferences: [{ path: "src/retry.ts" }],
+          behaviorComparisons: [contradictoryRetryComparison()],
           confidenceReasons: ["Reason"],
         },
         { record: async () => undefined },
@@ -188,5 +191,26 @@ function candidate(): StoredConfluenceCandidate {
       bodyStorageValue: STORAGE,
       bodyHash: "d".repeat(64),
     },
+  };
+}
+
+function contradictoryRetryComparison() {
+  return {
+    behavior: "Automatic retries are enabled.",
+    base: {
+      status: "present" as const,
+      excerpt: "Retries are enabled.",
+    },
+    head: {
+      status: "present" as const,
+      excerpt: "Retries are disabled.",
+    },
+    changeDirection: "modified" as const,
+    documentationAtHead: {
+      claim: "Retries are automatic.",
+      excerpt: "<p>Retries are automatic.</p>",
+    },
+    classification: "contradictory" as const,
+    rationale: "The final-head page contradicts the final implementation.",
   };
 }

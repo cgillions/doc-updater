@@ -13,7 +13,8 @@ export default defineTool({
     "Record the terminal outcome of the assigned review job. Successful " +
     "outcomes advance its repository cursor; incomplete outcomes preserve " +
     "the existing cursor. Successful outcomes require persisted implementation " +
-    "evidence.",
+    "evidence, and their terminal outcome must agree with every persisted " +
+    "behavior classification.",
   inputSchema: completeReviewJobInputSchema,
   outputSchema: completedReviewJobSchema,
   async execute(input, context) {

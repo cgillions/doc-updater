@@ -58,6 +58,76 @@ const confluencePatchSchema = z.object({
   replacementStorageValue: z.string().max(1_000_000),
 });
 
+const presentBehaviorStateSchema = z.object({
+  status: z.literal("present"),
+  excerpt: z.string().min(1).max(8_000),
+});
+
+const unavailableBehaviorStateSchema = z.object({
+  status: z.enum(["absent", "unavailable"]),
+  reason: z.string().min(1).max(1_000),
+});
+
+const behaviorStateSchema = z.discriminatedUnion("status", [
+  presentBehaviorStateSchema,
+  unavailableBehaviorStateSchema,
+]);
+
+/** One explicit comparison from range direction to final-head documentation. */
+export const behaviorComparisonSchema = z
+  .object({
+    behavior: z.string().min(1).max(1_000),
+    base: behaviorStateSchema,
+    head: behaviorStateSchema,
+    changeDirection: z.enum([
+      "introduced",
+      "removed",
+      "modified",
+      "unchanged",
+      "unknown",
+    ]),
+    documentationAtHead: z.object({
+      claim: z.string().min(1).max(2_000),
+      excerpt: z.string().min(1).max(8_000),
+    }),
+    classification: z.enum([
+      "consistent",
+      "contradictory",
+      "insufficient-evidence",
+    ]),
+    rationale: z.string().min(1).max(2_000),
+  })
+  .superRefine(({ base, head, changeDirection }, context) => {
+    const expectedStatuses = {
+      introduced: ["absent", "present"],
+      removed: ["present", "absent"],
+      modified: ["present", "present"],
+      unchanged: ["present", "present"],
+    } as const;
+    if (changeDirection === "unknown") {
+      if (base.status !== "unavailable" && head.status !== "unavailable") {
+        context.addIssue({
+          code: "custom",
+          path: ["changeDirection"],
+          message:
+            "Unknown direction requires unavailable base or head evidence.",
+        });
+      }
+      return;
+    }
+    const [expectedBase, expectedHead] =
+      expectedStatuses[changeDirection];
+    if (base.status !== expectedBase || head.status !== expectedHead) {
+      context.addIssue({
+        code: "custom",
+        path: ["changeDirection"],
+        message:
+          `${changeDirection} direction does not match the supplied ` +
+          "base and head evidence states.",
+      });
+    }
+  });
+
 /** Model input for one immutable factual evidence claim. */
 export const recordDriftEvidenceInputSchema = z.object({
   claim: z.string().min(1).max(4_000),
@@ -69,6 +139,10 @@ export const recordDriftEvidenceInputSchema = z.object({
     repositoryDocumentationSchema,
     confluenceDocumentationSchema,
   ]),
+  behaviorComparisons: z
+    .array(behaviorComparisonSchema)
+    .min(1)
+    .max(100),
   confidenceReasons: z.array(z.string().min(1).max(1_000)).min(1).max(20),
 });
 
@@ -206,7 +280,7 @@ export function buildEvidenceClaimDigest(
   input: RecordDriftEvidenceInput,
 ): string {
   return digest([
-    "evidence-claim-v1",
+    "evidence-claim-v2",
     reviewJobId,
     implementationSha,
     input,

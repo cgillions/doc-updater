@@ -37,6 +37,7 @@ describe("review evidence and proposal stores with PostgreSQL", () => {
       "../../../prisma/migrations/202607280001_roadie_scope_projection/migration.sql",
       "../../../prisma/migrations/202607290001_review_evidence_and_proposals/migration.sql",
       "../../../prisma/migrations/202607310001_review_job_retry_attempts/migration.sql",
+      "../../../prisma/migrations/202608010001_behavior_comparisons/migration.sql",
     ]) {
       const migration = await readFile(
         new URL(migrationPath, import.meta.url),
@@ -303,6 +304,56 @@ describe("review evidence and proposal stores with PostgreSQL", () => {
     );
   });
 
+  it("rejects an in-sync outcome when final-head documentation is contradictory", async () => {
+    const job = await createLeasedJob(database);
+    await evidenceStore.record(job.id, {
+      ...repositoryEvidenceInput(),
+      claim:
+        "The documentation requires approval on every call, while the " +
+        "implementation requires it only once per session.",
+      implementationReferences: [
+        {
+          path: "agent/tools/create_repository_pull_request.ts",
+          startLine: 1,
+          endLine: 22,
+        },
+      ],
+      documentation: {
+        kind: "repository",
+        path: "docs/system-plan.md",
+      },
+      behaviorComparisons: [{
+        behavior: "Approval frequency for repository pull-request creation.",
+        base: {
+          status: "present",
+          excerpt: "approval: always()",
+        },
+        head: {
+          status: "present",
+          excerpt: "approval: once()",
+        },
+        changeDirection: "modified",
+        documentationAtHead: {
+          claim: "Approval is required on every invocation.",
+          excerpt:
+            "`create_repository_pull_request` declares Eve's `always()` policy.",
+        },
+        classification: "contradictory",
+        rationale:
+          "The final-head documentation states every invocation while the " +
+          "final implementation approves only the first call in a session.",
+      }],
+    });
+
+    await assert.rejects(
+      completionStore.complete(job.id, {
+        outcome: "in-sync",
+        summary: "Both policies are approval-gated.",
+      }),
+      ReviewRecordConflictError,
+    );
+  });
+
   it("records incomplete outcomes without advancing the cursor", async () => {
     const job = await createLeasedJob(
       database,
@@ -333,7 +384,10 @@ describe("review evidence and proposal stores with PostgreSQL", () => {
 
   it("requires a persisted proposal for proposal-created outcomes", async () => {
     const job = await createLeasedJob(database);
-    await evidenceStore.record(job.id, repositoryEvidenceInput());
+    await evidenceStore.record(job.id, {
+      ...repositoryEvidenceInput(),
+      behaviorComparisons: [contradictoryBehaviorComparison()],
+    });
 
     await assert.rejects(
       completionStore.complete(job.id, {
@@ -342,6 +396,33 @@ describe("review evidence and proposal stores with PostgreSQL", () => {
       }),
       ReviewRecordConflictError,
     );
+  });
+
+  it("completes proposal-created when contradictory evidence has a persisted proposal", async () => {
+    const job = await createLeasedJob(database);
+    const evidence = await evidenceStore.record(job.id, {
+      ...repositoryEvidenceInput(),
+      behaviorComparisons: [contradictoryBehaviorComparison()],
+    });
+    await proposalStore.create(job.id, {
+      target: {
+        kind: "repository",
+        path: "docs/orders.md",
+      },
+      patch: {
+        kind: "repository-file-replacement",
+        content: "# Orders\n\nSend an idempotency key with every request.",
+      },
+      evidenceClaimIds: [evidence.id],
+    });
+
+    const completed = await completionStore.complete(job.id, {
+      outcome: "proposal-created",
+      summary: "A verified correction was persisted.",
+    });
+
+    assert.equal(completed.outcome, "proposal-created");
+    assert.equal(completed.cursorAdvanced, true);
   });
 });
 
@@ -424,6 +505,7 @@ function repositoryEvidenceInput() {
       kind: "repository" as const,
       path: "docs/orders.md",
     },
+    behaviorComparisons: [consistentBehaviorComparison()],
     confidenceReasons: ["The behavior is enforced by the route."],
   };
 }
@@ -439,7 +521,43 @@ function confluenceEvidenceInput(pageId: string) {
       version: 7,
       bodyHash: "d".repeat(64),
     },
+    behaviorComparisons: [consistentBehaviorComparison()],
     confidenceReasons: ["The behavior is enforced by the route."],
+  };
+}
+
+function consistentBehaviorComparison() {
+  return {
+    behavior: "Order creation requires an idempotency key.",
+    base: {
+      status: "present" as const,
+      excerpt: "The idempotency key is optional.",
+    },
+    head: {
+      status: "present" as const,
+      excerpt: "The idempotency key is required.",
+    },
+    changeDirection: "modified" as const,
+    documentationAtHead: {
+      claim: "The idempotency key is required.",
+      excerpt: "Send an idempotency key with every request.",
+    },
+    classification: "consistent" as const,
+    rationale: "The final-head documentation matches the final behavior.",
+  };
+}
+
+function contradictoryBehaviorComparison() {
+  return {
+    ...consistentBehaviorComparison(),
+    documentationAtHead: {
+      claim: "The idempotency key is optional.",
+      excerpt: "An idempotency key may be sent with a request.",
+    },
+    classification: "contradictory" as const,
+    rationale:
+      "The final implementation requires the key while the documentation " +
+      "still describes it as optional.",
   };
 }
 

@@ -9,6 +9,9 @@ import {
 
 const BASE_SHA = "a".repeat(40);
 const HEAD_SHA = "b".repeat(40);
+const FIRST_COMMIT_SHA = "c".repeat(40);
+const SECOND_COMMIT_SHA = "d".repeat(40);
+const THIRD_COMMIT_SHA = "e".repeat(40);
 
 describe("GitHubRepositoryReviewClient", () => {
   it("loads changed implementation paths and repository documentation at the assigned SHAs", async () => {
@@ -20,8 +23,25 @@ describe("GitHubRepositoryReviewClient", () => {
           [
             `/repos/example/service/compare/${BASE_SHA}...${HEAD_SHA}`,
             jsonResponse({
+              total_commits: 2,
+              commits: [
+                {
+                  sha: FIRST_COMMIT_SHA,
+                  commit: { message: "Add the API behavior" },
+                  parents: [{ sha: BASE_SHA }],
+                },
+                {
+                  sha: SECOND_COMMIT_SHA,
+                  commit: { message: "Document the API behavior" },
+                  parents: [{ sha: FIRST_COMMIT_SHA }],
+                },
+              ],
               files: [
-                { filename: "src/api.ts", status: "modified" },
+                {
+                  filename: "src/api.ts",
+                  status: "modified",
+                  patch: "@@ -1 +1 @@\n-old\n+new",
+                },
                 {
                   filename: "docs/new-name.md",
                   previous_filename: "docs/old-name.md",
@@ -59,8 +79,24 @@ describe("GitHubRepositoryReviewClient", () => {
       mode: "INCREMENTAL",
       baseSha: BASE_SHA,
       headSha: HEAD_SHA,
+      commits: [
+        {
+          sha: FIRST_COMMIT_SHA,
+          message: "Add the API behavior",
+          parentShas: [BASE_SHA],
+        },
+        {
+          sha: SECOND_COMMIT_SHA,
+          message: "Document the API behavior",
+          parentShas: [FIRST_COMMIT_SHA],
+        },
+      ],
       changedFiles: [
-        { path: "src/api.ts", status: "modified" },
+        {
+          path: "src/api.ts",
+          status: "modified",
+          patch: "@@ -1 +1 @@\n-old\n+new",
+        },
         {
           path: "docs/new-name.md",
           previousPath: "docs/old-name.md",
@@ -73,6 +109,91 @@ describe("GitHubRepositoryReviewClient", () => {
       `/repos/example/service/compare/${BASE_SHA}...${HEAD_SHA}`,
       `/repos/example/service/git/trees/${HEAD_SHA}?recursive=1`,
     ]);
+  });
+
+  it("preserves final patches and commit order across a noisy reverted range", async () => {
+    const client = new GitHubRepositoryReviewClient({
+      getAccessToken: async () => "installation-token",
+      fetch: createFixtureFetch(
+        new Map([
+          [
+            `/repos/example/service/compare/${BASE_SHA}...${HEAD_SHA}`,
+            jsonResponse({
+              total_commits: 3,
+              commits: [
+                {
+                  sha: FIRST_COMMIT_SHA,
+                  commit: { message: "Temporarily revise the guide" },
+                  parents: [{ sha: BASE_SHA }],
+                },
+                {
+                  sha: SECOND_COMMIT_SHA,
+                  commit: { message: "Revert the guide revision" },
+                  parents: [{ sha: FIRST_COMMIT_SHA }],
+                },
+                {
+                  sha: THIRD_COMMIT_SHA,
+                  commit: { message: "Change runtime behavior" },
+                  parents: [{ sha: SECOND_COMMIT_SHA }],
+                },
+              ],
+              files: [
+                {
+                  filename: "src/runtime.ts",
+                  status: "modified",
+                  patch:
+                    "@@ -10 +10 @@\n" +
+                    "-const policy = previousPolicy();\n" +
+                    "+const policy = currentPolicy();",
+                },
+              ],
+            }),
+          ],
+          [
+            `/repos/example/service/git/trees/${HEAD_SHA}?recursive=1`,
+            jsonResponse({
+              truncated: false,
+              tree: [
+                { path: "src/runtime.ts", type: "blob" },
+                { path: "docs/guide.md", type: "blob" },
+              ],
+            }),
+          ],
+        ]),
+      ),
+    });
+
+    const scope = await client.loadScope({
+      repositoryFullName: "example/service",
+      mode: "INCREMENTAL",
+      baseSha: BASE_SHA,
+      headSha: HEAD_SHA,
+    });
+
+    assert.deepEqual(
+      scope.commits.map(({ sha, message }) => ({ sha, message })),
+      [
+        {
+          sha: FIRST_COMMIT_SHA,
+          message: "Temporarily revise the guide",
+        },
+        {
+          sha: SECOND_COMMIT_SHA,
+          message: "Revert the guide revision",
+        },
+        {
+          sha: THIRD_COMMIT_SHA,
+          message: "Change runtime behavior",
+        },
+      ],
+    );
+    assert.equal(
+      scope.changedFiles[0]?.patch,
+      "@@ -10 +10 @@\n" +
+        "-const policy = previousPolicy();\n" +
+        "+const policy = currentPolicy();",
+    );
+    assert.deepEqual(scope.documentationFiles, ["docs/guide.md"]);
   });
 
   it("uses the head tree as changed input for reconciliation reviews", async () => {
@@ -115,7 +236,11 @@ describe("GitHubRepositoryReviewClient", () => {
         new Map([
           [
             `/repos/example/service/compare/${BASE_SHA}...${HEAD_SHA}`,
-            jsonResponse({ files: [] }),
+            jsonResponse({
+              total_commits: 0,
+              commits: [],
+              files: [],
+            }),
           ],
           [
             `/repos/example/service/git/trees/${HEAD_SHA}?recursive=1`,
@@ -144,6 +269,8 @@ describe("GitHubRepositoryReviewClient", () => {
           [
             `/repos/example/service/compare/${BASE_SHA}...${HEAD_SHA}`,
             jsonResponse({
+              total_commits: 0,
+              commits: [],
               files: Array.from({ length: 300 }, (_, index) => ({
                 filename: `src/file-${index}.ts`,
                 status: "modified",
@@ -156,6 +283,40 @@ describe("GitHubRepositoryReviewClient", () => {
 
     await assert.rejects(
       comparisonClient.loadScope({
+        repositoryFullName: "example/service",
+        mode: "INCREMENTAL",
+        baseSha: BASE_SHA,
+        headSha: HEAD_SHA,
+      }),
+      (error: unknown) =>
+        error instanceof GitHubRepositoryReviewLimitError &&
+        error.limit === "comparison",
+    );
+
+    const truncatedCommitsClient = new GitHubRepositoryReviewClient({
+      getAccessToken: async () => "installation-token",
+      fetch: createFixtureFetch(
+        new Map([
+          [
+            `/repos/example/service/compare/${BASE_SHA}...${HEAD_SHA}`,
+            jsonResponse({
+              total_commits: 2,
+              commits: [
+                {
+                  sha: FIRST_COMMIT_SHA,
+                  commit: { message: "First change" },
+                  parents: [{ sha: BASE_SHA }],
+                },
+              ],
+              files: [],
+            }),
+          ],
+        ]),
+      ),
+    });
+
+    await assert.rejects(
+      truncatedCommitsClient.loadScope({
         repositoryFullName: "example/service",
         mode: "INCREMENTAL",
         baseSha: BASE_SHA,

@@ -6,6 +6,7 @@ import type {
 
 import { ReviewRecordConflictError } from "../domain/reviews/errors.ts";
 import {
+  behaviorComparisonSchema,
   completedReviewJobSchema,
   completeReviewJobInputSchema,
   type CompletedReviewJob,
@@ -70,15 +71,52 @@ export class ReviewCompletionStore {
           "The assigned review job has no active lease token.",
         );
       }
-      const evidenceCount = await transaction.evidenceClaim.count({
+      const evidence = await transaction.evidenceClaim.findMany({
         where: { reviewJobId: job.id },
+        select: { behaviorComparisons: true },
       });
-      if (parsed.outcome !== "incomplete" && evidenceCount === 0) {
+      if (parsed.outcome !== "incomplete" && evidence.length === 0) {
         throw new ReviewRecordConflictError(
           "A successful review requires persisted implementation evidence before completion.",
         );
       }
+      const comparisons = evidence.flatMap(({ behaviorComparisons }) =>
+        behaviorComparisonSchema.array().parse(behaviorComparisons)
+      );
+      if (parsed.outcome !== "incomplete" && comparisons.length === 0) {
+        throw new ReviewRecordConflictError(
+          "A successful review requires at least one persisted behavior comparison.",
+        );
+      }
+      if (
+        parsed.outcome !== "incomplete" &&
+        comparisons.some(
+          ({ classification }) =>
+            classification === "insufficient-evidence",
+        )
+      ) {
+        throw new ReviewRecordConflictError(
+          "A successful review cannot contain insufficient behavior evidence.",
+        );
+      }
+      const hasContradiction = comparisons.some(
+        ({ classification }) => classification === "contradictory",
+      );
+      if (
+        (parsed.outcome === "no-change" ||
+          parsed.outcome === "in-sync") &&
+        hasContradiction
+      ) {
+        throw new ReviewRecordConflictError(
+          "A no-change or in-sync outcome cannot contain contradictory final-head documentation evidence.",
+        );
+      }
       if (parsed.outcome === "proposal-created") {
+        if (!hasContradiction) {
+          throw new ReviewRecordConflictError(
+            "A proposal-created outcome requires contradictory final-head documentation evidence.",
+          );
+        }
         const proposalCount = await transaction.changeProposal.count({
           where: { reviewJobId: job.id },
         });

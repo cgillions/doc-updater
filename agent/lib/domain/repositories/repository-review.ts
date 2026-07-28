@@ -9,6 +9,14 @@ export const changedRepositoryFileSchema = z.object({
   path: z.string().min(1),
   previousPath: z.string().min(1).optional(),
   status: z.string().min(1),
+  patch: z.string().min(1).optional(),
+});
+
+/** One ordered commit included in an incremental review range. */
+export const repositoryReviewCommitSchema = z.object({
+  sha: gitShaSchema,
+  message: z.string(),
+  parentShas: z.array(gitShaSchema),
 });
 
 /** Immutable, baseline-bound repository inputs available to one review. */
@@ -16,6 +24,7 @@ export const repositoryReviewScopeSchema = z.object({
   mode: z.enum(["INCREMENTAL", "RECONCILIATION"]),
   baseSha: gitShaSchema.nullable(),
   headSha: gitShaSchema,
+  commits: z.array(repositoryReviewCommitSchema),
   changedFiles: z.array(changedRepositoryFileSchema),
   documentationFiles: z.array(z.string().min(1)),
 });

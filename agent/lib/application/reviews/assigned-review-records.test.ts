@@ -107,7 +107,29 @@ function evidenceInput() {
       kind: "repository" as const,
       path: "docs/orders.md",
     },
+    behaviorComparisons: [consistentBehaviorComparison()],
     confidenceReasons: ["The behavior is enforced by the route."],
+  };
+}
+
+function consistentBehaviorComparison() {
+  return {
+    behavior: "Order creation requires an idempotency key.",
+    base: {
+      status: "present" as const,
+      excerpt: "The idempotency key is optional.",
+    },
+    head: {
+      status: "present" as const,
+      excerpt: "The idempotency key is required.",
+    },
+    changeDirection: "modified" as const,
+    documentationAtHead: {
+      claim: "The idempotency key is required.",
+      excerpt: "Send an idempotency key with every request.",
+    },
+    classification: "consistent" as const,
+    rationale: "The final-head documentation matches the final behavior.",
   };
 }
 

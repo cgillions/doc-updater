@@ -34,6 +34,7 @@ describe("AssignedRepositoryReader", () => {
             mode: coordinates.mode,
             baseSha: coordinates.baseSha,
             headSha: coordinates.headSha,
+            commits: [],
             changedFiles: [],
             documentationFiles: [],
           };
@@ -153,4 +154,3 @@ function incrementalContext(): ReviewJobContext {
     documentationScope: [],
   };
 }
-

@@ -10,9 +10,10 @@ import {
 
 export default defineTool({
   description:
-    "Persist one factual documentation-drift claim with implementation " +
-    "references for one Github repository documentation file. Repository identity " +
-    "and implementation SHA come from the assigned review job.",
+    "Persist one factual documentation-drift claim with explicit base/head " +
+    "behavior comparisons, final-head documentation classifications, and " +
+    "implementation references for one GitHub repository documentation file. " +
+    "Repository identity and implementation SHA come from the assigned job.",
   inputSchema: recordRepositoryEvidenceInputSchema,
   outputSchema: evidenceClaimRecordSchema,
   async execute(input, context) {

@@ -13,6 +13,22 @@ const EVIDENCE_ID = "22222222-2222-4222-8222-222222222222";
 const HEAD_SHA = "a".repeat(40);
 
 describe("review record contracts", () => {
+  it("requires explicit base, head, direction, and final-head documentation comparisons", () => {
+    assert.throws(() =>
+      recordDriftEvidenceInputSchema.parse({
+        claim: "The public endpoint now requires an idempotency key.",
+        implementationReferences: [
+          { path: "src/routes/orders.ts", startLine: 20, endLine: 28 },
+        ],
+        documentation: {
+          kind: "repository",
+          path: "docs/orders.md",
+        },
+        confidenceReasons: ["The behavior is enforced and covered by a test."],
+      }),
+    );
+  });
+
   it("builds stable evidence digests independent of object key order", () => {
     const input = recordDriftEvidenceInputSchema.parse({
       claim: "The public endpoint now requires an idempotency key.",
@@ -23,6 +39,24 @@ describe("review record contracts", () => {
         kind: "repository",
         path: "docs/orders.md",
       },
+      behaviorComparisons: [{
+        behavior: "Idempotency is required for order creation.",
+        base: {
+          status: "present",
+          excerpt: "The idempotency key is optional.",
+        },
+        head: {
+          status: "present",
+          excerpt: "The idempotency key is required.",
+        },
+        changeDirection: "modified",
+        documentationAtHead: {
+          claim: "The idempotency key is required.",
+          excerpt: "Send an idempotency key with every request.",
+        },
+        classification: "consistent",
+        rationale: "The final-head documentation matches the final behavior.",
+      }],
       confidenceReasons: ["The behavior is enforced and covered by a test."],
     });
 
@@ -32,6 +66,7 @@ describe("review record contracts", () => {
         confidenceReasons: input.confidenceReasons,
         documentation: input.documentation,
         implementationReferences: input.implementationReferences,
+        behaviorComparisons: input.behaviorComparisons,
         claim: input.claim,
       }),
     );
@@ -48,6 +83,7 @@ describe("review record contracts", () => {
           claim: "A factual claim.",
           implementationReferences: [{ path: "src/orders.ts" }],
           documentation: { kind: "repository", path },
+          behaviorComparisons: [consistentBehaviorComparison()],
           confidenceReasons: ["A confidence reason."],
         }),
       );
@@ -106,3 +142,24 @@ describe("review record contracts", () => {
     );
   });
 });
+
+function consistentBehaviorComparison() {
+  return {
+    behavior: "Idempotency is required for order creation.",
+    base: {
+      status: "present" as const,
+      excerpt: "The idempotency key is optional.",
+    },
+    head: {
+      status: "present" as const,
+      excerpt: "The idempotency key is required.",
+    },
+    changeDirection: "modified" as const,
+    documentationAtHead: {
+      claim: "The idempotency key is required.",
+      excerpt: "Send an idempotency key with every request.",
+    },
+    classification: "consistent" as const,
+    rationale: "The final-head documentation matches the final behavior.",
+  };
+}

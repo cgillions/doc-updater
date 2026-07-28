@@ -124,6 +124,19 @@ development with:
 curl -X POST http://localhost:2000/eve/v1/dev/schedules/dispatch-reviews
 ```
 
+Inspect the latest local review job and its persisted evidence/proposals with:
+
+```sh
+./local-session-detail.sh
+```
+
+Remove the latest local review job and its replay artifacts so the same
+repository can be scheduled again with:
+
+```sh
+./local-session-rollback.sh
+```
+
 This is the production schedule path. It refreshes GitHub and Roadie before
 creating due jobs, then starts Slack sessions for repositories with a current
 trusted route. Approved repository proposals can create pull requests through

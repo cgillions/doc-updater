@@ -9,9 +9,10 @@ import { createGitHubRepositoryReviewClient } from "../lib/github/repository-rev
 
 export default defineTool({
   description:
-    "Load the complete bounded set of changed implementation paths and " +
-    "candidate repository documentation for the assigned job. Repository " +
-    "identity and revisions come from trusted session authentication.",
+    "Load the complete bounded comparison for the assigned job, including " +
+    "ordered commits, available file patches, changed implementation paths, " +
+    "and candidate repository documentation. Repository identity and " +
+    "revisions come from trusted session authentication.",
   inputSchema: z.object({}),
   outputSchema: repositoryReviewScopeSchema,
   async execute(_input, context) {
@@ -26,4 +27,3 @@ export default defineTool({
     }
   },
 });
-

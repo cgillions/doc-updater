@@ -19,11 +19,26 @@ const gitShaSchema = z
   .regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/);
 
 const compareSchema = z.object({
+  total_commits: z.number().int().nonnegative(),
+  commits: z.array(
+    z.object({
+      sha: gitShaSchema,
+      commit: z.object({
+        message: z.string(),
+      }),
+      parents: z.array(
+        z.object({
+          sha: gitShaSchema,
+        }),
+      ),
+    }),
+  ),
   files: z.array(
     z.object({
       filename: z.string().min(1),
       previous_filename: z.string().min(1).optional(),
       status: z.string().min(1),
+      patch: z.string().min(1).optional(),
     }),
   ),
 });
@@ -142,7 +157,7 @@ export class GitHubRepositoryReviewClient {
   ): Promise<RepositoryReviewScope> {
     validateCoordinates(coordinates);
     const token = await this.getToken();
-    const incrementalFiles =
+    const comparison =
       coordinates.mode === "INCREMENTAL"
         ? await this.loadComparison(token, coordinates)
         : null;
@@ -159,12 +174,13 @@ export class GitHubRepositoryReviewClient {
     }
 
     const changedFiles =
-      incrementalFiles ?? this.mapReconciliationFiles(treePaths);
+      comparison?.changedFiles ?? this.mapReconciliationFiles(treePaths);
 
     return {
       mode: coordinates.mode,
       baseSha: coordinates.baseSha,
       headSha: coordinates.headSha,
+      commits: comparison?.commits ?? [],
       changedFiles,
       documentationFiles,
     };
@@ -253,7 +269,9 @@ export class GitHubRepositoryReviewClient {
   private async loadComparison(
     token: string,
     coordinates: RepositoryReviewCoordinates,
-  ): Promise<RepositoryReviewScope["changedFiles"]> {
+  ): Promise<
+    Pick<RepositoryReviewScope, "changedFiles" | "commits">
+  > {
     if (!coordinates.baseSha) {
       throw new Error("Incremental repository review requires a base SHA.");
     }
@@ -264,19 +282,34 @@ export class GitHubRepositoryReviewClient {
       `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}` +
       `/compare/${coordinates.baseSha}...${coordinates.headSha}`;
     const parsed = compareSchema.parse(await this.getJson(token, requestPath));
+    if (parsed.commits.length !== parsed.total_commits) {
+      throw new GitHubRepositoryReviewLimitError(
+        "comparison",
+        `GitHub returned ${parsed.commits.length} of ` +
+          `${parsed.total_commits} commits for the comparison.`,
+      );
+    }
     if (parsed.files.length >= GITHUB_COMPARE_FILE_LIMIT) {
       throw new GitHubRepositoryReviewLimitError(
         "comparison",
         `GitHub comparisons expose at most ${GITHUB_COMPARE_FILE_LIMIT} files.`,
       );
     }
-    return parsed.files.map((file) => ({
-      path: file.filename,
-      ...(file.previous_filename
-        ? { previousPath: file.previous_filename }
-        : {}),
-      status: file.status,
-    }));
+    return {
+      commits: parsed.commits.map((commit) => ({
+        sha: commit.sha,
+        message: commit.commit.message,
+        parentShas: commit.parents.map(({ sha }) => sha),
+      })),
+      changedFiles: parsed.files.map((file) => ({
+        path: file.filename,
+        ...(file.previous_filename
+          ? { previousPath: file.previous_filename }
+          : {}),
+        status: file.status,
+        ...(file.patch ? { patch: file.patch } : {}),
+      })),
+    };
   }
 
   private mapReconciliationFiles(

@@ -65,6 +65,8 @@ export class EvidenceClaimStore {
           implementationSha: job.headSha,
           implementationReferences:
             parsed.implementationReferences as Prisma.InputJsonValue,
+          behaviorComparisons:
+            parsed.behaviorComparisons as Prisma.InputJsonValue,
           targetKind:
             parsed.documentation.kind === "repository"
               ? "REPOSITORY"
@@ -101,6 +103,7 @@ function toEvidenceClaimRecord(claim: {
   claimText: string;
   implementationSha: string;
   implementationReferences: unknown;
+  behaviorComparisons: unknown;
   documentation: unknown;
   confidenceReasons: unknown;
 }): EvidenceClaimRecord {
@@ -111,6 +114,7 @@ function toEvidenceClaimRecord(claim: {
     claim: claim.claimText,
     implementationSha: claim.implementationSha,
     implementationReferences: claim.implementationReferences,
+    behaviorComparisons: claim.behaviorComparisons,
     documentation: claim.documentation,
     confidenceReasons: claim.confidenceReasons,
   });

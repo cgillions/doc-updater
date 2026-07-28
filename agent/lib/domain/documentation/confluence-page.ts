@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-import { implementationReferenceSchema } from "../reviews/review-records.ts";
+import {
+  behaviorComparisonSchema,
+  implementationReferenceSchema,
+} from "../reviews/review-records.ts";
 
 const digestSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
@@ -66,6 +69,10 @@ export const recordConfluenceEvidenceInputSchema = z.object({
   claim: z.string().min(1).max(4_000),
   implementationReferences: z
     .array(implementationReferenceSchema)
+    .min(1)
+    .max(100),
+  behaviorComparisons: z
+    .array(behaviorComparisonSchema)
     .min(1)
     .max(100),
   confidenceReasons: z.array(z.string().min(1).max(1_000)).min(1).max(20),

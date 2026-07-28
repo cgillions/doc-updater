@@ -9,7 +9,8 @@ import { evidenceClaimRecordSchema } from "../lib/domain/reviews/review-records.
 
 export default defineTool({
   description:
-    "Persist implementation-backed drift evidence for a fetched opaque " +
+    "Persist implementation-backed drift evidence with explicit base/head " +
+    "behavior comparisons and final-head classifications for a fetched opaque " +
     "Confluence candidate. Page identity and baseline come from trusted state.",
   inputSchema: recordConfluenceEvidenceInputSchema,
   outputSchema: evidenceClaimRecordSchema,

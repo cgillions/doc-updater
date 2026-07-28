@@ -55,6 +55,7 @@ export class AssignedConfluenceReviewRecorder {
     return recorder.record(reviewJobId, {
       claim: input.claim,
       implementationReferences: input.implementationReferences,
+      behaviorComparisons: input.behaviorComparisons,
       confidenceReasons: input.confidenceReasons,
       documentation: {
         kind: "confluence",
