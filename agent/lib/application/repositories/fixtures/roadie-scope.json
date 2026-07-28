@@ -1,0 +1,82 @@
+{
+  "components": [
+    {
+      "apiVersion": "backstage.io/v1alpha1",
+      "kind": "Component",
+      "metadata": {
+        "name": "example-service",
+        "namespace": "default",
+        "etag": "component-revision-7",
+        "annotations": {
+          "github.com/project-slug": "example/example-service"
+        },
+        "links": [
+          {
+            "title": "Service runbook",
+            "url": "https://example.atlassian.net/wiki/spaces/EXAMPLE/pages/44444",
+            "type": "documentation-confluence-page"
+          }
+        ]
+      },
+      "relations": [
+        {
+          "type": "partOf",
+          "targetRef": "system:default/example-system"
+        },
+        {
+          "type": "ownedBy",
+          "targetRef": "group:default/example-team"
+        }
+      ]
+    }
+  ],
+  "entitiesByRef": {
+    "system:default/example-system": {
+      "apiVersion": "backstage.io/v1alpha1",
+      "kind": "System",
+      "metadata": {
+        "name": "example-system",
+        "namespace": "default",
+        "annotations": {},
+        "links": [
+          {
+            "title": "System architecture",
+            "url": "https://example.atlassian.net/wiki/spaces/EXAMPLE/pages/33333",
+            "type": "documentation-confluence-page"
+          }
+        ]
+      },
+      "relations": [
+        {
+          "type": "ownedBy",
+          "targetRef": "group:default/example-team"
+        }
+      ]
+    },
+    "group:default/example-team": {
+      "apiVersion": "backstage.io/v1alpha1",
+      "kind": "Group",
+      "metadata": {
+        "name": "example-team",
+        "namespace": "default",
+        "annotations": {
+          "docs.example.com/slack-channel-id": "C0123456789",
+          "docs.example.com/confluence-exclude-page-ids": "22229, 22230"
+        },
+        "links": [
+          {
+            "title": "Engineering handbook",
+            "url": "https://example.atlassian.net/wiki/spaces/EXAMPLE/pages/11111",
+            "type": "documentation-confluence-page"
+          },
+          {
+            "title": "Team documentation",
+            "url": "https://example.atlassian.net/wiki/spaces/EXAMPLE/pages/22222",
+            "type": "documentation-confluence-root"
+          }
+        ]
+      },
+      "relations": []
+    }
+  }
+}
