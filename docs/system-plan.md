@@ -430,7 +430,7 @@ thin tools. Expected authored tools include:
   references.
 - `create_change_proposal`: persist a repository or Confluence proposal
   against an immutable baseline.
-- `create_pull_request`: declare Eve's `always()` approval policy,
+- `create_repository_pull_request`: declare Eve's `always()` approval policy,
   then revalidate the repository baseline and create the documentation branch
   and pull request.
 - `complete_review_job`: record the outcome and advance the repository cursor.
