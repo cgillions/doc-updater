@@ -48,6 +48,26 @@ migrations:
 npm run db:migrate:deploy
 ```
 
+For local development, start PostgreSQL with Docker Compose:
+
+```sh
+docker compose up -d
+export DATABASE_URL=postgresql://doc_updater:doc_updater@localhost:5432/doc_updater
+npm run db:migrate:deploy
+```
+
+When you are finished:
+
+```sh
+docker compose down
+```
+
+If you want to remove the persisted local database volume as well:
+
+```sh
+docker compose down -v
+```
+
 Run `npm run db:generate` after changing the Prisma schema. Installation also
 generates the client used by the application.
 
