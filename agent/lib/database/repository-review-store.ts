@@ -1,4 +1,5 @@
 import type { DueReviewCandidate } from "../application/review-jobs/enqueue-due-reviews.ts";
+import type { ReviewJobDispatchRoute } from "../application/review-jobs/dispatch-review-jobs.ts";
 import { Prisma, type PrismaClient } from "./generated/client.ts";
 
 /** Database row shape returned by due-review candidate selection. */
@@ -54,5 +55,45 @@ export class RepositoryReviewStore {
         )
       ORDER BY repositories.github_repository_id
     `);
+  }
+
+  /**
+   * Loads the current canonical Slack route for each requested job.
+   *
+   * Jobs whose repository is no longer resolved or schedulable are omitted so
+   * the dispatcher can fail and retry them independently.
+   */
+  async loadDispatchRoutes(
+    reviewJobIds: readonly string[],
+  ): Promise<ReviewJobDispatchRoute[]> {
+    if (reviewJobIds.length === 0) {
+      return [];
+    }
+    const jobs = await this.database.reviewJob.findMany({
+      where: {
+        id: { in: [...reviewJobIds] },
+        repository: {
+          isAccessible: true,
+          isArchived: false,
+          isPaused: false,
+          roadieScopeStatus: "RESOLVED",
+          slackChannelId: { not: null },
+        },
+      },
+      select: {
+        id: true,
+        repository: { select: { slackChannelId: true } },
+      },
+    });
+    return jobs.flatMap((job) =>
+      job.repository.slackChannelId
+        ? [
+            {
+              reviewJobId: job.id,
+              slackChannelId: job.repository.slackChannelId,
+            },
+          ]
+        : [],
+    );
   }
 }

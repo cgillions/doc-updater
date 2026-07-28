@@ -100,6 +100,41 @@ describe("RepositoryReviewStore with PostgreSQL", () => {
       },
     ]);
   });
+
+  it("loads only current trusted Slack routes for claimed jobs", async () => {
+    const resolved = await createRepository(database, 201, "resolved");
+    const repoOnly = await createRepository(database, 202, "repo-only", {
+      roadieScopeStatus: "REPO_ONLY",
+    });
+    const resolvedJob = await database.reviewJob.create({
+      data: {
+        repositoryId: resolved.id,
+        baseSha: BASE_SHA,
+        headSha: HEAD_SHA,
+        mode: "INCREMENTAL",
+        deduplicationKey: "resolved-route",
+      },
+    });
+    const repoOnlyJob = await database.reviewJob.create({
+      data: {
+        repositoryId: repoOnly.id,
+        baseSha: BASE_SHA,
+        headSha: HEAD_SHA,
+        mode: "INCREMENTAL",
+        deduplicationKey: "missing-route",
+      },
+    });
+
+    assert.deepEqual(
+      await store.loadDispatchRoutes([repoOnlyJob.id, resolvedJob.id]),
+      [
+        {
+          reviewJobId: resolvedJob.id,
+          slackChannelId: "C0123456789",
+        },
+      ],
+    );
+  });
 });
 
 async function createRepository(
