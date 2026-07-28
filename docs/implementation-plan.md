@@ -313,8 +313,9 @@ remain out of scope. The model cannot search outside resolved page IDs.
 - A read-only Confluence client records `{siteId, pageId, version, bodyHash}`
   and preserves native structured content.
 - Candidate and content tools reject page IDs not present in the job scope.
-- A repository-driven Confluence proposal stores a section-level patch,
-  implementation evidence, and exact page baseline.
+- A repository-driven Confluence proposal stores one exact, uniquely matched
+  native-storage fragment replacement, implementation evidence, and exact page
+  baseline.
 
 **Verification:** Focused client, scope, and store tests cover restricted
 pages, stale versions, out-of-scope IDs, structured content, and shared pages.

@@ -145,6 +145,45 @@ describe("review evidence and proposal stores with PostgreSQL", () => {
     );
   });
 
+  it("binds Confluence proposals to evidence for the exact page baseline", async () => {
+    const job = await createLeasedJob(database);
+    const evidence = await evidenceStore.record(
+      job.id,
+      confluenceEvidenceInput("12345"),
+    );
+    const input = {
+      target: {
+        kind: "confluence" as const,
+        siteId: "example-site",
+        pageId: "12345",
+        version: 7,
+        bodyHash: "d".repeat(64),
+      },
+      patch: {
+        kind: "confluence-storage-fragment-replacement" as const,
+        baselineStorageValue: "<h2>Orders</h2><p>Current</p>",
+        baselineFragmentHash: "e".repeat(64),
+        replacementStorageValue: "<h2>Orders</h2><p>Updated</p>",
+      },
+      evidenceClaimIds: [evidence.id],
+    };
+
+    const proposal = await proposalStore.create(job.id, input);
+
+    assert.equal(proposal.repositoryBaselineSha, null);
+    assert.equal(proposal.target.kind, "confluence");
+    await assert.rejects(
+      proposalStore.create(job.id, {
+        ...input,
+        target: {
+          ...input.target,
+          version: 8,
+        },
+      }),
+      ReviewRecordConflictError,
+    );
+  });
+
   it("rejects evidence belonging to a different review job", async () => {
     const firstJob = await createLeasedJob(database, "first", "101");
     const secondJob = await createLeasedJob(database, "second", "102");

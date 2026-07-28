@@ -4,16 +4,16 @@ import { createAssignedChangeProposal } from "../lib/application/reviews/assigne
 import { ChangeProposalStore } from "../lib/database/change-proposal-store.ts";
 import { createDatabaseClient } from "../lib/database/client.ts";
 import {
-  changeProposalInputSchema,
   changeProposalRecordSchema,
+  repositoryChangeProposalInputSchema,
 } from "../lib/domain/reviews/review-records.ts";
 
 export default defineTool({
   description:
-    "Persist one immutable, evidence-backed repository-file or Confluence " +
-    "proposal. The target must belong to the assigned review job. This tool " +
-    "does not create a pull request, draft, or other external artifact.",
-  inputSchema: changeProposalInputSchema,
+    "Persist one immutable, evidence-backed Github repository-file proposal. The " +
+    "target must belong to the assigned review job. This tool does not create " +
+    "a pull request or other external artifact.",
+  inputSchema: repositoryChangeProposalInputSchema,
   outputSchema: changeProposalRecordSchema,
   async execute(input, context) {
     const database = createDatabaseClient();

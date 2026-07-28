@@ -61,12 +61,29 @@ export class ChangeProposalStore {
           id: { in: parsed.evidenceClaimIds },
           reviewJobId: job.id,
         },
-        select: { id: true },
+        select: {
+          id: true,
+          targetKind: true,
+          documentation: true,
+        },
       });
       if (evidence.length !== parsed.evidenceClaimIds.length) {
         throw new ReviewRecordConflictError(
           "Every proposal evidence claim must belong to the assigned job.",
         );
+      }
+      if (parsed.target.kind === "confluence") {
+        const target = parsed.target;
+        if (
+          !evidence.some(({ targetKind, documentation }) =>
+            targetKind === "CONFLUENCE" &&
+            isMatchingConfluenceBaseline(documentation, target),
+          )
+        ) {
+          throw new ReviewRecordConflictError(
+            "A Confluence proposal requires evidence for its exact page baseline.",
+          );
+        }
       }
 
       const proposal = await transaction.changeProposal.create({
@@ -107,6 +124,28 @@ export class ChangeProposalStore {
       return toChangeProposalRecord(proposal);
     });
   }
+}
+
+function isMatchingConfluenceBaseline(
+  documentation: unknown,
+  target: {
+    siteId: string;
+    pageId: string;
+    version: number;
+    bodyHash: string;
+  },
+): boolean {
+  if (typeof documentation !== "object" || documentation === null) {
+    return false;
+  }
+  const value = documentation as Record<string, unknown>;
+  return (
+    value.kind === "confluence" &&
+    value.siteId === target.siteId &&
+    value.pageId === target.pageId &&
+    value.version === target.version &&
+    value.bodyHash === target.bodyHash
+  );
 }
 
 function toChangeProposalRecord(proposal: {

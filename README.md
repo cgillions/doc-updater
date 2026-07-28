@@ -57,6 +57,8 @@ limits can be tuned with:
 - `GITHUB_CONNECTOR_ID` (default `github/docia-gh`)
 - `ROADIE_API_TOKEN` (required service-account token)
 - `ROADIE_API_BASE_URL` (default `https://api.roadie.so/api/catalog/`)
+- `CONFLUENCE_API_TOKEN` (required scoped service-account API token)
+- `CONFLUENCE_MAX_PAGE_BYTES` (default `1000000`)
 - `ROADIE_REFRESH_LIMIT` (default `25`, maximum `100`)
 - `ROADIE_SCOPE_REFRESH_INTERVAL_MS` (default `86400000`)
 - `ROADIE_SCOPE_MAX_AGE_MS` (default `604800000`)
@@ -72,14 +74,18 @@ For local development, start PostgreSQL with Docker Compose:
 docker compose up -d
 export DATABASE_URL=postgresql://doc_updater:doc_updater@localhost:5432/doc_updater
 export ROADIE_API_TOKEN=replace-with-roadie-service-account-token
+export CONFLUENCE_API_TOKEN=replace-with-scoped-service-account-api-token
 npm run db:migrate:deploy
 ```
 
-Keep `ROADIE_API_TOKEN` in local or deployed environment configuration; do not
-commit it. Slack routes and Confluence scope are read from the Roadie entities:
-the owning Group supplies `slack.com/channel-id`, and Component, System, and
-Group `metadata.links` supply Confluence pages or roots. Confluence exclusions
-use one organization-prefixed annotation ending in
+Keep API tokens in local or deployed environment configuration; do not commit
+them. Confluence uses the scoped service-account token through Atlassian's API
+gateway. Cloud IDs are resolved from the trusted Roadie site hosts. The service
+account needs permission to view the declared sandbox pages; the agent has no
+Confluence write tool. Slack routes and Confluence scope are read from the
+Roadie entities: the owning Group supplies `slack.com/channel-id`, and
+Component, System, and Group `metadata.links` supply Confluence pages or roots.
+Confluence exclusions use one organization-prefixed annotation ending in
 `/confluence-exclude-page-ids`. Run `npx eve link` once to link the local
 checkout to the deployed Vercel project and pull the OIDC environment used by
 the GitHub and Slack Vercel Connect integrations.
@@ -108,5 +114,14 @@ curl -X POST http://localhost:2000/eve/v1/dev/schedules/dispatch-reviews
 
 This is the production schedule path. It refreshes GitHub and Roadie before
 creating due jobs, then starts Slack sessions for repositories with a current
-trusted route. Do not add model-visible write tools without the tests and
-security boundary required by the corresponding implementation task.
+trusted route. Shadow sessions can persist repository and exact-page
+Confluence proposals, but cannot create pull requests, drafts, or published
+changes.
+
+## Confluence API permissions
+
+Create a Confluence service account and an API token with only the granular
+`read:page:confluence` scope. Grant the service account permission to view each
+declared sandbox page and its space.
+
+The token can be configured to expire after at most one year.

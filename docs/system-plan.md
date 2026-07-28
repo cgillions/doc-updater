@@ -627,7 +627,7 @@ Use PostgreSQL as the authoritative application store, optionally with
 - catalog snapshots and resolved entity relationships;
 - repository cursors and scheduled-job leases;
 - Confluence page identity, hierarchy, version, body hash, permissions, and
-  indexed sections;
+  bounded native storage content;
 - evidence claims, proposals, HITL outcomes, conflicts, and artifact-creation
   outcomes;
   and
@@ -673,7 +673,8 @@ is intentionally not an authorization boundary for merge or publication.
 
 - Preserve the native Confluence representation and structured nodes or
   macros. Do not round-trip an entire page through Markdown.
-- Show a section-level before-and-after diff and evidence links in Slack.
+- Show the exact native-storage fragment before-and-after diff and evidence
+  links in Slack.
 - On approval, re-fetch the page and compare its page ID, version, and body
   hash with the proposal baseline.
 - If the page changed, invalidate the proposal and regenerate it instead

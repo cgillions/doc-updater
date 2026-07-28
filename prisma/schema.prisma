@@ -103,41 +103,79 @@ model ReviewJobClaimInvocation {
 }
 
 model ReviewJob {
-  id                 String                    @id @default(uuid()) @db.Uuid
-  repositoryId       String                    @map("repository_id") @db.Uuid
-  claimInvocationId  String?                   @map("claim_invocation_id") @db.Uuid
-  baseSha            String?                   @map("base_sha")
-  headSha            String                    @map("head_sha")
-  mode               ReviewJobMode
-  deduplicationKey   String                    @unique @map("deduplication_key")
-  status             ReviewJobStatus           @default(PENDING)
-  attemptCount       Int                       @default(0) @map("attempt_count")
-  availableAt        DateTime                  @default(now()) @map("available_at") @db.Timestamptz(3)
-  leaseOwner         String?                   @map("lease_owner")
-  leaseToken         String?                   @map("lease_token") @db.Uuid
-  lastLeaseToken     String?                   @map("last_lease_token") @db.Uuid
-  lastLeaseOutcome   ReviewLeaseOutcome?       @map("last_lease_outcome")
-  leaseExpiresAt     DateTime?                 @map("lease_expires_at") @db.Timestamptz(3)
-  completedAt        DateTime?                 @map("completed_at") @db.Timestamptz(3)
-  failedAt           DateTime?                 @map("failed_at") @db.Timestamptz(3)
-  lastFailureCode    String?                   @map("last_failure_code")
-  lastFailureMessage String?                   @map("last_failure_message")
-  outcome            ReviewJobOutcome?
-  outcomeSummary     String?                   @map("outcome_summary")
-  cursorAdvancedAt   DateTime?                 @map("cursor_advanced_at") @db.Timestamptz(3)
-  createdAt          DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt          DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
-  repository         RepositoryRegistry        @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
-  claimInvocation    ReviewJobClaimInvocation? @relation(fields: [claimInvocationId], references: [id], onDelete: Restrict)
-  evidenceClaims     EvidenceClaim[]
-  changeProposals    ChangeProposal[]
-  auditEvents        AuditEvent[]
+  id                   String                         @id @default(uuid()) @db.Uuid
+  repositoryId         String                         @map("repository_id") @db.Uuid
+  claimInvocationId    String?                        @map("claim_invocation_id") @db.Uuid
+  baseSha              String?                        @map("base_sha")
+  headSha              String                         @map("head_sha")
+  mode                 ReviewJobMode
+  deduplicationKey     String                         @unique @map("deduplication_key")
+  status               ReviewJobStatus                @default(PENDING)
+  attemptCount         Int                            @default(0) @map("attempt_count")
+  availableAt          DateTime                       @default(now()) @map("available_at") @db.Timestamptz(3)
+  leaseOwner           String?                        @map("lease_owner")
+  leaseToken           String?                        @map("lease_token") @db.Uuid
+  lastLeaseToken       String?                        @map("last_lease_token") @db.Uuid
+  lastLeaseOutcome     ReviewLeaseOutcome?            @map("last_lease_outcome")
+  leaseExpiresAt       DateTime?                      @map("lease_expires_at") @db.Timestamptz(3)
+  completedAt          DateTime?                      @map("completed_at") @db.Timestamptz(3)
+  failedAt             DateTime?                      @map("failed_at") @db.Timestamptz(3)
+  lastFailureCode      String?                        @map("last_failure_code")
+  lastFailureMessage   String?                        @map("last_failure_message")
+  outcome              ReviewJobOutcome?
+  outcomeSummary       String?                        @map("outcome_summary")
+  cursorAdvancedAt     DateTime?                      @map("cursor_advanced_at") @db.Timestamptz(3)
+  createdAt            DateTime                       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  repository           RepositoryRegistry             @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+  claimInvocation      ReviewJobClaimInvocation?      @relation(fields: [claimInvocationId], references: [id], onDelete: Restrict)
+  evidenceClaims       EvidenceClaim[]
+  changeProposals      ChangeProposal[]
+  confluenceCandidates ReviewJobConfluenceCandidate[]
+  auditEvents          AuditEvent[]
 
   @@index([status, availableAt, createdAt])
   @@index([status, leaseExpiresAt])
   @@index([claimInvocationId, status])
   @@index([repositoryId, createdAt])
   @@map("review_jobs")
+}
+
+model ConfluencePageSnapshot {
+  id               String                         @id @default(uuid()) @db.Uuid
+  siteId           String                         @map("site_id")
+  pageId           String                         @map("page_id")
+  version          Int
+  status           String
+  title            String
+  spaceId          String                         @map("space_id")
+  parentId         String?                        @map("parent_id")
+  bodyStorageValue String                         @map("body_storage_value")
+  bodyHash         String                         @map("body_hash")
+  fetchedAt        DateTime                       @map("fetched_at") @db.Timestamptz(3)
+  candidates       ReviewJobConfluenceCandidate[]
+
+  @@unique([siteId, pageId, version])
+  @@index([siteId, pageId, fetchedAt])
+  @@map("confluence_page_snapshots")
+}
+
+model ReviewJobConfluenceCandidate {
+  id          String                  @id @default(uuid()) @db.Uuid
+  reviewJobId String                  @map("review_job_id") @db.Uuid
+  siteId      String                  @map("site_id")
+  pageId      String                  @map("page_id")
+  label       String
+  snapshotId  String?                 @map("snapshot_id") @db.Uuid
+  createdAt   DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+  reviewJob   ReviewJob               @relation(fields: [reviewJobId], references: [id], onDelete: Restrict)
+  snapshot    ConfluencePageSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+
+  @@unique([reviewJobId, siteId, pageId])
+  @@index([reviewJobId, createdAt])
+  @@index([snapshotId])
+  @@map("review_job_confluence_candidates")
 }
 
 model EvidenceClaim {

@@ -16,7 +16,7 @@ const repositoryPathSchema = z
     "Repository paths must be relative and cannot traverse directories.",
   );
 
-const implementationReferenceSchema = z
+export const implementationReferenceSchema = z
   .object({
     path: repositoryPathSchema,
     startLine: z.number().int().positive().optional(),
@@ -52,9 +52,9 @@ const repositoryPatchSchema = z.object({
 });
 
 const confluencePatchSchema = z.object({
-  kind: z.literal("confluence-section-replacement"),
-  sectionId: z.string().min(1).max(512),
-  baselineSectionHash: digestSchema,
+  kind: z.literal("confluence-storage-fragment-replacement"),
+  baselineStorageValue: z.string().min(1).max(1_000_000),
+  baselineFragmentHash: digestSchema,
   replacementStorageValue: z.string().max(1_000_000),
 });
 
@@ -71,6 +71,12 @@ export const recordDriftEvidenceInputSchema = z.object({
   ]),
   confidenceReasons: z.array(z.string().min(1).max(1_000)).min(1).max(20),
 });
+
+/** Repository-only evidence input exposed by the repository review tool. */
+export const recordRepositoryEvidenceInputSchema =
+  recordDriftEvidenceInputSchema.extend({
+    documentation: repositoryDocumentationSchema,
+  });
 
 /** Model input for one immutable, evidence-backed target proposal. */
 export const changeProposalInputSchema = z
@@ -90,7 +96,7 @@ export const changeProposalInputSchema = z
       (target.kind === "repository" &&
         patch.kind === "repository-file-replacement") ||
       (target.kind === "confluence" &&
-        patch.kind === "confluence-section-replacement");
+        patch.kind === "confluence-storage-fragment-replacement");
     if (!matches) {
       context.addIssue({
         code: "custom",
@@ -105,6 +111,13 @@ export const changeProposalInputSchema = z
       });
     }
   });
+
+/** Repository-only proposal input exposed by the repository review tool. */
+export const repositoryChangeProposalInputSchema = z.object({
+  target: repositoryProposalTargetSchema,
+  patch: repositoryPatchSchema,
+  evidenceClaimIds: z.array(z.uuid()).min(1).max(100),
+});
 
 /** Model input for the terminal outcome of the assigned review job. */
 export const completeReviewJobInputSchema = z.object({

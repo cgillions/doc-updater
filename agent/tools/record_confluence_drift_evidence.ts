@@ -1,24 +1,24 @@
 import { defineTool } from "eve/tools";
 
-import { recordAssignedDriftEvidence } from "../lib/application/reviews/assigned-review-records.ts";
+import { AssignedConfluenceReviewRecorder } from "../lib/application/documentation/record-confluence-review.ts";
+import { ConfluencePageStore } from "../lib/database/confluence-page-store.ts";
 import { createDatabaseClient } from "../lib/database/client.ts";
 import { EvidenceClaimStore } from "../lib/database/evidence-claim-store.ts";
-import {
-  evidenceClaimRecordSchema,
-  recordDriftEvidenceInputSchema,
-} from "../lib/domain/reviews/review-records.ts";
+import { recordConfluenceEvidenceInputSchema } from "../lib/domain/documentation/confluence-page.ts";
+import { evidenceClaimRecordSchema } from "../lib/domain/reviews/review-records.ts";
 
 export default defineTool({
   description:
-    "Persist one factual documentation-drift claim with implementation " +
-    "references. Repository identity and implementation SHA come from the " +
-    "assigned review job; Confluence targets must be inside its scope.",
-  inputSchema: recordDriftEvidenceInputSchema,
+    "Persist implementation-backed drift evidence for a fetched opaque " +
+    "Confluence candidate. Page identity and baseline come from trusted state.",
+  inputSchema: recordConfluenceEvidenceInputSchema,
   outputSchema: evidenceClaimRecordSchema,
   async execute(input, context) {
     const database = createDatabaseClient();
     try {
-      return await recordAssignedDriftEvidence(
+      return await new AssignedConfluenceReviewRecorder(
+        new ConfluencePageStore(database),
+      ).recordEvidence(
         context.session.auth,
         input,
         new EvidenceClaimStore(database),
