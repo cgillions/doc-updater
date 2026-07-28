@@ -10,6 +10,8 @@ import {
 export interface ReviewRecordJob {
   id: string;
   repositoryId: string;
+  repositoryFullName: string;
+  defaultBranch: string;
   headSha: string;
   baseSha: string | null;
   status: string;
@@ -60,6 +62,8 @@ export async function loadReviewRecordJob(
       cursorAdvancedAt: true,
       repository: {
         select: {
+          repositoryFullName: true,
+          defaultBranch: true,
           isAccessible: true,
           isArchived: true,
           isPaused: true,
@@ -75,6 +79,8 @@ export async function loadReviewRecordJob(
   return {
     id: job.id,
     repositoryId: job.repositoryId,
+    repositoryFullName: job.repository.repositoryFullName,
+    defaultBranch: job.repository.defaultBranch,
     headSha: job.headSha,
     baseSha: job.baseSha,
     status: job.status,

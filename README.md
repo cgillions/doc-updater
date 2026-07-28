@@ -20,12 +20,14 @@ shadow reviews:
 - the session can load only the opaque job ID bound to trusted app
   authentication; and
 - model-visible filesystem, shell, web, interactive-input, delegation, and
-  write tools are explicitly disabled.
+  write tools are explicitly disabled. The application-owned, approval-gated
+  repository pull-request creator is the only GitHub write path.
 
 The dispatched session reads bounded repository content at its immutable SHA
 range, records implementation evidence, and persists a baseline-bound proposal
-when it demonstrates documentation drift. Shadow mode cannot create branches,
-pull requests, Confluence drafts, or other external artifacts.
+when it demonstrates documentation drift. An approved stored repository
+proposal may create one branch, conventional documentation commit, and pull
+request; Confluence remains shadow-only.
 
 ## Development
 
@@ -90,6 +92,16 @@ Confluence exclusions use one organization-prefixed annotation ending in
 checkout to the deployed Vercel project and pull the OIDC environment used by
 the GitHub and Slack Vercel Connect integrations.
 
+## GitHub App permissions
+
+Keep the configured `github/docia-gh` review connector read-only. The
+application-owned pull-request creator separately uses
+`github/docia-pr-writer`, which must be a dedicated GitHub App installation
+with only repository Contents read/write and Pull requests read/write access.
+Do not grant merge, administration, or workflow-management permissions. The
+writer connector is used only after Eve's approval gate accepts the stored
+proposal; model-visible tools never receive its credential or raw write API.
+
 When you are finished:
 
 ```sh
@@ -114,9 +126,9 @@ curl -X POST http://localhost:2000/eve/v1/dev/schedules/dispatch-reviews
 
 This is the production schedule path. It refreshes GitHub and Roadie before
 creating due jobs, then starts Slack sessions for repositories with a current
-trusted route. Shadow sessions can persist repository and exact-page
-Confluence proposals, but cannot create pull requests, drafts, or published
-changes.
+trusted route. Approved repository proposals can create pull requests through
+the dedicated writer connector. Exact-page Confluence proposals remain
+shadow-only and cannot create drafts or published changes.
 
 ## Confluence API permissions
 

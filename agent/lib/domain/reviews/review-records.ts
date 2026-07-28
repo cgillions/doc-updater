@@ -119,6 +119,11 @@ export const repositoryChangeProposalInputSchema = z.object({
   evidenceClaimIds: z.array(z.uuid()).min(1).max(100),
 });
 
+/** Model input for creating one pull request from a stored repository proposal. */
+export const createRepositoryPullRequestInputSchema = z.object({
+  proposalDigest: digestSchema,
+});
+
 /** Model input for the terminal outcome of the assigned review job. */
 export const completeReviewJobInputSchema = z.object({
   outcome: z.enum([
@@ -147,6 +152,16 @@ export const changeProposalRecordSchema = changeProposalInputSchema.extend({
   repositoryBaselineSha: shaSchema.nullable(),
 });
 
+/** Persisted repository pull-request artifact returned after approved creation. */
+export const repositoryPullRequestRecordSchema = z.object({
+  proposalDigest: digestSchema,
+  baseSha: shaSchema,
+  branchName: z.string().min(1).max(255),
+  commitSha: shaSchema,
+  pullRequestNumber: z.number().int().positive(),
+  pullRequestUrl: z.url(),
+});
+
 /** Persisted terminal review result returned to the active session. */
 export const completedReviewJobSchema = completeReviewJobInputSchema.extend({
   reviewJobId: z.uuid(),
@@ -166,6 +181,12 @@ export type ChangeProposalInput = z.infer<
 >;
 export type ChangeProposalRecord = z.infer<
   typeof changeProposalRecordSchema
+>;
+export type CreateRepositoryPullRequestInput = z.infer<
+  typeof createRepositoryPullRequestInputSchema
+>;
+export type RepositoryPullRequestRecord = z.infer<
+  typeof repositoryPullRequestRecordSchema
 >;
 export type CompleteReviewJobInput = z.infer<
   typeof completeReviewJobInputSchema

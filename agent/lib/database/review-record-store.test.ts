@@ -9,6 +9,7 @@ import { ReviewRecordConflictError } from "../domain/reviews/errors.ts";
 import { createDatabaseClient, type DatabaseClient } from "./client.ts";
 import { ChangeProposalStore } from "./change-proposal-store.ts";
 import { EvidenceClaimStore } from "./evidence-claim-store.ts";
+import { RepositoryPullRequestStore } from "./repository-pull-request-store.ts";
 import { ReviewCompletionStore } from "./review-completion-store.ts";
 import { ReviewJobStore } from "./review-job-store.ts";
 
@@ -21,6 +22,7 @@ describe("review evidence and proposal stores with PostgreSQL", () => {
   let database: DatabaseClient;
   let evidenceStore: EvidenceClaimStore;
   let proposalStore: ChangeProposalStore;
+  let pullRequestStore: RepositoryPullRequestStore;
   let completionStore: ReviewCompletionStore;
 
   before(async () => {
@@ -47,6 +49,7 @@ describe("review evidence and proposal stores with PostgreSQL", () => {
     database = createDatabaseClient({ connectionString });
     evidenceStore = new EvidenceClaimStore(database);
     proposalStore = new ChangeProposalStore(database);
+    pullRequestStore = new RepositoryPullRequestStore(database);
     completionStore = new ReviewCompletionStore(database);
   });
 
@@ -144,6 +147,75 @@ describe("review evidence and proposal stores with PostgreSQL", () => {
       }),
       /immutable/,
     );
+  });
+
+  it("loads a digest-verified repository proposal and records one idempotent pull-request artifact", async () => {
+    const job = await createLeasedJob(database);
+    const evidence = await evidenceStore.record(job.id, repositoryEvidenceInput());
+    const proposal = await proposalStore.create(job.id, {
+      target: { kind: "repository", path: "docs/orders.md" },
+      patch: {
+        kind: "repository-file-replacement",
+        content: "# Orders\n\nUse an idempotency key.",
+      },
+      evidenceClaimIds: [evidence.id],
+    });
+
+    const stored = await pullRequestStore.loadProposal(job.id, proposal.digest);
+    assert.deepEqual(stored, {
+      id: proposal.id,
+      reviewJobId: job.id,
+      repositoryId: job.repositoryId,
+      repositoryFullName: "example/orders",
+      defaultBranch: "main",
+      digest: proposal.digest,
+      baseSha: HEAD_SHA,
+      path: "docs/orders.md",
+      content: "# Orders\n\nUse an idempotency key.",
+    });
+
+    const first = await pullRequestStore.recordCreated({
+      proposal: stored!,
+      idempotencyKey: `repository-pull-request:repository-pr-v1:${proposal.digest}`,
+      branchName: "docs/proposal-123456789abc",
+      commitSha: "e".repeat(40),
+      pullRequestNumber: 17,
+      pullRequestUrl: "https://github.example/example/orders/pull/17",
+      actorId: "U12345678",
+      sessionId: "session-123",
+      toolCallId: "call-123",
+    });
+    const replay = await pullRequestStore.recordCreated({
+      proposal: stored!,
+      idempotencyKey: `repository-pull-request:repository-pr-v1:${proposal.digest}`,
+      branchName: "docs/proposal-123456789abc",
+      commitSha: "e".repeat(40),
+      pullRequestNumber: 17,
+      pullRequestUrl: "https://github.example/example/orders/pull/17",
+      actorId: "U12345678",
+      sessionId: "session-123",
+      toolCallId: "call-123",
+    });
+
+    assert.deepEqual(replay, first);
+    assert.equal(
+      await database.auditEvent.count({
+        where: { eventType: "repository_pull_request_created" },
+      }),
+      1,
+    );
+    const audit = await database.auditEvent.findUniqueOrThrow({
+      where: {
+        idempotencyKey: `repository-pull-request:repository-pr-v1:${proposal.digest}`,
+      },
+    });
+    assert.deepEqual(audit.details, {
+      proposalId: proposal.id,
+      approvalOutcome: "approved",
+      sessionId: "session-123",
+      toolCallId: "call-123",
+      ...first,
+    });
   });
 
   it("binds Confluence proposals to evidence for the exact page baseline", async () => {
