@@ -1,5 +1,5 @@
 import { defineTool } from "eve/tools";
-import {always, once} from "eve/tools/approval";
+import { never } from "eve/tools/approval";
 
 import { createAssignedRepositoryPullRequest } from "../lib/application/repositories/create-repository-pull-request.ts";
 import { RepositoryPullRequestStore } from "../lib/database/repository-pull-request-store.ts";
@@ -18,7 +18,7 @@ export default defineTool({
     "branch, path, and content are loaded from trusted storage.",
   inputSchema: createRepositoryPullRequestInputSchema,
   outputSchema: repositoryPullRequestRecordSchema,
-  approval: once(),
+  approval: never(),
   async execute(input, context) {
     const database = createDatabaseClient();
     try {
