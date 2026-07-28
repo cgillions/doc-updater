@@ -9,7 +9,7 @@ import {
 } from "./resolve-roadie-scope.ts";
 
 const fixturePath = new URL(
-  "./fixtures/roadie-scope.json",
+  "../../../../test/fixtures/roadie-scope.json",
   import.meta.url,
 );
 const config: RoadieScopeResolverConfig = {
@@ -303,6 +303,20 @@ describe("RoadieScopeResolver", () => {
       assert.equal(result.scope.slackChannelId, "C9876543210");
     }
   });
+
+  it("aborts refreshes on transient catalog failures", async () => {
+    const catalog = catalogFixture();
+    catalog.getEntityByRef = async () => {
+      throw new Error("Roadie is unavailable.");
+    };
+
+    await assert.rejects(
+      new RoadieScopeResolver(catalog, config).resolve(
+        "example/example-service",
+      ),
+      /Roadie is unavailable/,
+    );
+  });
 });
 
 interface CatalogFixture {
@@ -311,7 +325,7 @@ interface CatalogFixture {
   componentQueries: string[];
   entityReads: string[];
   findComponentsByName(name: string): Promise<RoadieCatalogEntity[]>;
-  getEntityByRef(entityRef: string): Promise<RoadieCatalogEntity>;
+  getEntityByRef(entityRef: string): Promise<RoadieCatalogEntity | null>;
 }
 
 function catalogFixture(): CatalogFixture {
@@ -330,7 +344,7 @@ function catalogFixture(): CatalogFixture {
       this.entityReads.push(entityRef);
       const entity = this.entitiesByRef[entityRef];
       if (!entity) {
-        throw new Error(`No fixture for ${entityRef}.`);
+        return null;
       }
       return entity;
     },

@@ -28,6 +28,12 @@ enum ReviewLeaseOutcome {
   RECOVERED
 }
 
+enum RoadieScopeStatus {
+  PENDING
+  RESOLVED
+  REPO_ONLY
+}
+
 model RepositoryRegistry {
   id                     String            @id @default(uuid()) @db.Uuid
   githubRepositoryId     String            @unique @map("github_repository_id")
@@ -37,6 +43,16 @@ model RepositoryRegistry {
   isAccessible           Boolean           @default(true) @map("is_accessible")
   isArchived             Boolean           @default(false) @map("is_archived")
   isPaused               Boolean           @default(false) @map("is_paused")
+  roadieScopeStatus      RoadieScopeStatus @default(PENDING) @map("roadie_scope_status")
+  componentRef           String?           @map("component_ref")
+  systemRef              String?           @map("system_ref")
+  ownerRef               String?           @map("owner_ref")
+  slackChannelId         String?           @map("slack_channel_id")
+  documentationScope     Json?             @map("documentation_scope")
+  catalogRevision        String?           @map("catalog_revision")
+  configurationHash      String?           @map("configuration_hash")
+  roadieDiagnostics      Json              @default("[]") @map("roadie_diagnostics")
+  lastRoadieRefreshAt    DateTime?         @map("last_roadie_refresh_at") @db.Timestamptz(3)
   nextReviewAt           DateTime?         @map("next_review_at") @db.Timestamptz(3)
   lastInventoryRefreshAt DateTime          @map("last_inventory_refresh_at") @db.Timestamptz(3)
   createdAt              DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -46,6 +62,7 @@ model RepositoryRegistry {
   auditEvents            AuditEvent[]
 
   @@index([isAccessible, isArchived, isPaused, nextReviewAt], map: "repository_registry_scheduling_eligibility_idx")
+  @@index([roadieScopeStatus], map: "repository_registry_roadie_scope_status_idx")
   @@map("repository_registry")
 }
 

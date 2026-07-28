@@ -68,10 +68,29 @@ describe("RoadieCatalogClient", () => {
       "system:default/example-system",
     );
 
-    assert.equal(system.kind, "System");
-    assert.deepEqual(system.relations, [
+    assert.equal(system?.kind, "System");
+    assert.deepEqual(system?.relations, [
       { type: "ownedBy", targetRef: "group:default/example-team" },
     ]);
+  });
+
+  it("returns null when a referenced catalog entity does not exist", async () => {
+    const client = new RoadieCatalogClient({
+      getAccessToken: async () => "roadie-token",
+      fetch: createFixtureFetch(
+        new Map([
+          [
+            "/api/catalog/entities/by-name/group/default/missing-team",
+            jsonResponse({ error: "Not found" }, 404),
+          ],
+        ]),
+      ),
+    });
+
+    assert.equal(
+      await client.getEntityByRef("group:default/missing-team"),
+      null,
+    );
   });
 
   it("rejects relative entity references before making a request", async () => {

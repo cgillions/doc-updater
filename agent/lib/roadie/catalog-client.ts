@@ -115,9 +115,11 @@ export class RoadieCatalogClient {
   /**
    * Fetches one entity using a full `kind:namespace/name` reference.
    *
-   * @returns The validated processed entity.
+   * @returns The validated processed entity, or `null` when it is absent.
    */
-  async getEntityByRef(entityRef: string): Promise<RoadieCatalogEntity> {
+  async getEntityByRef(
+    entityRef: string,
+  ): Promise<RoadieCatalogEntity | null> {
     const parsedRef = parseEntityRef(entityRef);
     const requestUrl = new URL(
       `entities/by-name/${encodeURIComponent(parsedRef.kind)}/` +
@@ -125,7 +127,14 @@ export class RoadieCatalogClient {
         `${encodeURIComponent(parsedRef.name)}`,
       this.apiBaseUrl,
     );
-    const response = await this.get(await this.readToken(), requestUrl);
+    const response = await this.fetchResponse(
+      await this.readToken(),
+      requestUrl,
+    );
+    if (response.status === 404) {
+      return null;
+    }
+    assertSuccessfulResponse(response, requestUrl);
     return roadieCatalogEntitySchema.parse(await response.json());
   }
 
@@ -138,21 +147,20 @@ export class RoadieCatalogClient {
   }
 
   private async get(token: string, url: URL): Promise<Response> {
+    const response = await this.fetchResponse(token, url);
+    assertSuccessfulResponse(response, url);
+    return response;
+  }
+
+  private async fetchResponse(token: string, url: URL): Promise<Response> {
     validateCatalogUrl(url, this.apiBaseUrl);
-    const response = await this.fetch(url, {
+    return this.fetch(url, {
       headers: {
         Accept: "application/json",
         Authorization: `Bearer ${token}`,
         "User-Agent": "documentation-drift-control-plane",
       },
     });
-    if (!response.ok) {
-      throw new RoadieCatalogRequestError(
-        `${url.pathname}${url.search}`,
-        response.status,
-      );
-    }
-    return response;
   }
 }
 
@@ -189,7 +197,19 @@ function validateCatalogUrl(url: URL, apiBaseUrl: URL): void {
   }
 }
 
-function parseNextPage(linkHeader: string | null, apiBaseUrl: URL): URL | undefined {
+function assertSuccessfulResponse(response: Response, url: URL): void {
+  if (!response.ok) {
+    throw new RoadieCatalogRequestError(
+      `${url.pathname}${url.search}`,
+      response.status,
+    );
+  }
+}
+
+function parseNextPage(
+  linkHeader: string | null,
+  apiBaseUrl: URL,
+): URL | undefined {
   if (!linkHeader) {
     return undefined;
   }

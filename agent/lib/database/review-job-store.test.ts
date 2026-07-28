@@ -35,6 +35,7 @@ describe("ReviewJobStore with PostgreSQL", () => {
     for (const migrationPath of [
       "../../../prisma/migrations/202607220001_initial_control_plane/migration.sql",
       "../../../prisma/migrations/202607230001_repository_inventory_access/migration.sql",
+      "../../../prisma/migrations/202607280001_roadie_scope_projection/migration.sql",
     ]) {
       const migration = await readFile(
         new URL(migrationPath, import.meta.url),

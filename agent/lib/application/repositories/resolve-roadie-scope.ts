@@ -20,7 +20,9 @@ const ROOT_LINK_TYPE = "documentation-confluence-root";
 /** Read operations required from the processed Roadie catalog. */
 export interface RoadieScopeCatalog {
   findComponentsByName(name: string): Promise<RoadieCatalogEntity[]>;
-  getEntityByRef(entityRef: string): Promise<RoadieCatalogEntity>;
+  getEntityByRef(
+    entityRef: string,
+  ): Promise<RoadieCatalogEntity | null>;
 }
 
 /** Organization-owned metadata keys and approved Confluence sites. */
@@ -209,16 +211,12 @@ export class RoadieScopeResolver {
     | { entity: RoadieCatalogEntity }
     | { diagnostic: RoadieScopeDiagnostic }
   > {
-    try {
-      const entity = await this.catalog.getEntityByRef(targetRef);
-      if (
-        entityRef(entity) !== targetRef ||
-        entity.kind.toLowerCase() !== expectedKind
-      ) {
-        throw new Error("Catalog entity identity did not match its relation.");
-      }
-      return { entity };
-    } catch {
+    const entity = await this.catalog.getEntityByRef(targetRef);
+    if (
+      !entity ||
+      entityRef(entity) !== targetRef ||
+      entity.kind.toLowerCase() !== expectedKind
+    ) {
       return {
         diagnostic: diagnostic(
           diagnosticCode,
@@ -228,6 +226,7 @@ export class RoadieScopeResolver {
         ),
       };
     }
+    return { entity };
   }
 
   private collectDocumentation(
