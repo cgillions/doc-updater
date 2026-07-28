@@ -102,7 +102,7 @@ export class ReviewJobDispatcher {
     this.queue = options.queue;
     this.routes = options.routes;
     this.receiver = options.receiver;
-    this.config = validateConfig(options.config);
+    this.config = validateReviewJobDispatcherConfig(options.config);
     this.createId = options.createId ?? randomUUID;
     this.clock = options.clock ?? (() => new Date());
   }
@@ -226,11 +226,13 @@ export class ReviewJobDispatcher {
   }
 }
 
-function validateConfig(
+/** Validates operational claim, lease, retry, and concurrency limits. */
+export function validateReviewJobDispatcherConfig(
   config: ReviewJobDispatcherConfig,
 ): ReviewJobDispatcherConfig {
   validateBatchSize(config.claimLimit);
   validateLeaseDuration(config.leaseForMs);
+  validateLeaseDuration(config.failureRetryMs);
   if (
     !Number.isInteger(config.concurrencyLimit) ||
     config.concurrencyLimit < 1 ||
@@ -246,14 +248,6 @@ function validateConfig(
     config.claimAttempts > 5
   ) {
     throw new RangeError("Review job claim attempts must be between 1 and 5.");
-  }
-  if (
-    !Number.isInteger(config.failureRetryMs) ||
-    config.failureRetryMs <= 0
-  ) {
-    throw new RangeError(
-      "Review session failure retry delay must be a positive integer.",
-    );
   }
   return config;
 }

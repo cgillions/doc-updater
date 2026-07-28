@@ -8,21 +8,23 @@ work packages in
 
 ## Current state
 
-The repository currently contains a deliberately inert foundation:
+The deterministic control plane currently supports scheduled diagnostic
+dispatch:
 
 - the Eve application route requires Vercel OIDC in deployed environments;
 - local access is permitted only by Eve's local-development authenticator;
-- there are no schedules, external connections, or sub-agents; and
+- a weekday handler-form schedule creates and leases bounded review batches;
+- each claimed repository starts a distinct root Eve session in its
+  Roadie-resolved Slack channel through the existing `slack/docia` connector;
+- the session can load only the opaque job ID bound to trusted app
+  authentication; and
 - model-visible filesystem, shell, web, interactive-input, delegation, and
   write tools are explicitly disabled.
 
-The deterministic control plane now includes a PostgreSQL schema and durable
-review-job store. It is not yet connected to an Eve schedule or model-visible
-tool, so adding database credentials does not start documentation reviews.
-
-Repository discovery, documentation analysis, approval, and publication will
-be introduced in later work packages. The current agent must not be deployed
-with an expectation that it performs documentation reviews.
+The dispatched session reports a diagnostic after loading its immutable SHA
+range and resolved documentation scope. It does not inspect implementation or
+documentation content, assess drift, request approval, or create artifacts.
+Those capabilities are introduced by later work packages.
 
 ## Development
 
@@ -48,6 +50,15 @@ migrations:
 npm run db:migrate:deploy
 ```
 
+The schedule runs at `07:00 UTC` on weekdays. Its independent operational
+limits can be tuned with:
+
+- `REVIEW_DISPATCH_CLAIM_LIMIT` (default `10`)
+- `REVIEW_DISPATCH_CONCURRENCY_LIMIT` (default `3`)
+- `REVIEW_JOB_LEASE_MS` (default `1800000`)
+- `REVIEW_JOB_CLAIM_ATTEMPTS` (default `2`)
+- `REVIEW_JOB_FAILURE_RETRY_MS` (default `300000`)
+
 For local development, start PostgreSQL with Docker Compose:
 
 ```sh
@@ -71,6 +82,14 @@ docker compose down -v
 Run `npm run db:generate` after changing the Prisma schema. Installation also
 generates the client used by the application.
 
-Use `npm run dev` to start Eve locally. Do not add a connection, schedule, or
-model-visible write tool without the tests and security boundary required by
+Use `npm run dev` to start Eve locally. Trigger the schedule once during local
+development with:
+
+```sh
+curl -X POST http://localhost:2000/eve/v1/dev/schedules/dispatch-reviews
+```
+
+This is the production dispatch path and may create Slack sessions when the
+local database contains due, fully resolved repositories. Do not add
+model-visible write tools without the tests and security boundary required by
 the corresponding implementation task.
