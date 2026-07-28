@@ -39,7 +39,9 @@ describe("RepositoryReviewStore with PostgreSQL", () => {
     await migrationPool.end();
 
     database = createDatabaseClient({ connectionString });
-    store = new RepositoryReviewStore(database);
+    store = new RepositoryReviewStore(database, {
+      roadieFreshAfter: new Date(0),
+    });
     contextStore = new ReviewJobContextStore(database);
   });
 
@@ -137,6 +139,34 @@ describe("RepositoryReviewStore with PostgreSQL", () => {
           slackChannelId: "C0123456789",
         },
       ],
+    );
+  });
+
+  it("excludes expired Roadie projections from enqueue and dispatch", async () => {
+    const freshAfter = new Date("2026-07-28T05:00:00.000Z");
+    const freshnessBoundStore = new RepositoryReviewStore(database, {
+      roadieFreshAfter: freshAfter,
+    });
+    const stale = await createRepository(database, 203, "stale", {
+      lastRoadieRefreshAt: new Date("2026-07-28T04:59:59.999Z"),
+    });
+    const staleJob = await database.reviewJob.create({
+      data: {
+        repositoryId: stale.id,
+        baseSha: BASE_SHA,
+        headSha: HEAD_SHA,
+        mode: "INCREMENTAL",
+        deduplicationKey: "stale-route",
+      },
+    });
+
+    assert.deepEqual(
+      await freshnessBoundStore.listDueReviewCandidates(),
+      [],
+    );
+    assert.deepEqual(
+      await freshnessBoundStore.loadDispatchRoutes([staleJob.id]),
+      [],
     );
   });
 
@@ -246,6 +276,7 @@ async function createRepository(
     isArchived?: boolean;
     isPaused?: boolean;
     roadieScopeStatus?: "RESOLVED" | "REPO_ONLY";
+    lastRoadieRefreshAt?: Date;
   } = {},
 ) {
   const roadieScopeStatus = overrides.roadieScopeStatus ?? "RESOLVED";
@@ -267,7 +298,9 @@ async function createRepository(
       documentationScope: isResolved ? [] : undefined,
       configurationHash: isResolved ? "a".repeat(64) : null,
       roadieDiagnostics: [],
-      lastRoadieRefreshAt: new Date("2026-07-28T06:00:00.000Z"),
+      lastRoadieRefreshAt:
+        overrides.lastRoadieRefreshAt ??
+        new Date("2026-07-28T06:00:00.000Z"),
       lastInventoryRefreshAt: new Date("2026-07-28T06:00:00.000Z"),
     },
   });

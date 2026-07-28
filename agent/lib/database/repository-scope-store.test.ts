@@ -164,7 +164,76 @@ describe("RepositoryScopeStore with PostgreSQL", () => {
     );
     assert.equal(await database.auditEvent.count(), 0);
   });
+
+  it("prioritizes unresolved repositories and bounds stale refresh candidates", async () => {
+    const pending =
+      await database.repositoryRegistry.findFirstOrThrow();
+    const staleRepoOnly = await database.repositoryRegistry.create({
+      data: repositoryData("102", "repo-only", {
+        roadieScopeStatus: "REPO_ONLY",
+        lastRoadieRefreshAt: new Date("2026-07-27T09:00:00.000Z"),
+      }),
+    });
+    const staleResolved = await database.repositoryRegistry.create({
+      data: repositoryData("103", "resolved", {
+        roadieScopeStatus: "RESOLVED",
+        lastRoadieRefreshAt: new Date("2026-07-27T09:00:00.000Z"),
+      }),
+    });
+    await database.repositoryRegistry.create({
+      data: repositoryData("104", "fresh", {
+        roadieScopeStatus: "RESOLVED",
+        lastRoadieRefreshAt: new Date("2026-07-29T06:30:00.000Z"),
+      }),
+    });
+    await database.repositoryRegistry.create({
+      data: repositoryData("105", "paused", {
+        isPaused: true,
+        roadieScopeStatus: "PENDING",
+      }),
+    });
+
+    const candidates = await scopeStore.listRoadieRefreshCandidates({
+      limit: 3,
+      staleBefore: new Date("2026-07-29T06:00:00.000Z"),
+    });
+
+    assert.deepEqual(candidates, [
+      { repositoryId: pending.id },
+      { repositoryId: staleRepoOnly.id },
+      { repositoryId: staleResolved.id },
+    ]);
+  });
 });
+
+function repositoryData(
+  githubRepositoryId: string,
+  name: string,
+  overrides: {
+    isPaused?: boolean;
+    roadieScopeStatus: "PENDING" | "RESOLVED" | "REPO_ONLY";
+    lastRoadieRefreshAt?: Date;
+  },
+) {
+  const resolved = overrides.roadieScopeStatus === "RESOLVED";
+  return {
+    githubRepositoryId,
+    repositoryFullName: `example/${name}`,
+    defaultBranch: "main",
+    defaultBranchHeadSha: SHA,
+    isPaused: overrides.isPaused ?? false,
+    roadieScopeStatus: overrides.roadieScopeStatus,
+    componentRef: resolved ? `component:default/${name}` : null,
+    systemRef: resolved ? "system:default/example-system" : null,
+    ownerRef: resolved ? "group:default/example-team" : null,
+    slackChannelId: resolved ? "C0123456789" : null,
+    documentationScope: resolved ? [] : undefined,
+    configurationHash: resolved ? "a".repeat(64) : null,
+    roadieDiagnostics: [],
+    lastRoadieRefreshAt: overrides.lastRoadieRefreshAt,
+    lastInventoryRefreshAt: new Date("2026-07-29T07:00:00.000Z"),
+  };
+}
 
 function resolvedScope(): RoadieScopeResolution & { status: "resolved" } {
   return {

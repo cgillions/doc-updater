@@ -3,28 +3,16 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import type { RoadieCatalogEntity } from "../../roadie/catalog-client.ts";
-import {
-  RoadieScopeResolver,
-  type RoadieScopeResolverConfig,
-} from "./resolve-roadie-scope.ts";
+import { RoadieScopeResolver } from "./resolve-roadie-scope.ts";
 
 const fixturePath = new URL(
   "../../../../test/fixtures/roadie-scope.json",
   import.meta.url,
 );
-const config: RoadieScopeResolverConfig = {
-  slackChannelAnnotation: "docs.example.com/slack-channel-id",
-  confluenceExclusionsAnnotation:
-    "docs.example.com/confluence-exclude-page-ids",
-  confluenceSites: [
-    { hostname: "example.atlassian.net", siteId: "example-site" },
-  ],
-};
-
 describe("RoadieScopeResolver", () => {
   it("inherits Component, System, and Group documentation with local root exclusions", async () => {
     const catalog = catalogFixture();
-    const result = await new RoadieScopeResolver(catalog, config).resolve(
+    const result = await new RoadieScopeResolver(catalog).resolve(
       "example/example-service",
     );
 
@@ -45,11 +33,13 @@ describe("RoadieScopeResolver", () => {
     assert.match(result.scope.configurationHash, /^[0-9a-f]{64}$/);
     assert.deepEqual(
       result.scope.documents.map((document) => ({
+        siteId: document.siteId,
         pageId: document.pageId,
         declaration: document.declarations[0],
       })),
       [
         {
+          siteId: "example.atlassian.net",
           pageId: "11111",
           declaration: {
             kind: "exact",
@@ -63,6 +53,7 @@ describe("RoadieScopeResolver", () => {
           },
         },
         {
+          siteId: "example.atlassian.net",
           pageId: "22222",
           declaration: {
             kind: "root",
@@ -76,6 +67,7 @@ describe("RoadieScopeResolver", () => {
           },
         },
         {
+          siteId: "example.atlassian.net",
           pageId: "33333",
           declaration: {
             kind: "exact",
@@ -89,6 +81,7 @@ describe("RoadieScopeResolver", () => {
           },
         },
         {
+          siteId: "example.atlassian.net",
           pageId: "44444",
           declaration: {
             kind: "exact",
@@ -115,7 +108,7 @@ describe("RoadieScopeResolver", () => {
       type: "documentation-confluence-page",
     });
 
-    const result = await new RoadieScopeResolver(catalog, config).resolve(
+    const result = await new RoadieScopeResolver(catalog).resolve(
       "example/example-service",
     );
 
@@ -149,7 +142,7 @@ describe("RoadieScopeResolver", () => {
       "other/example-service";
     catalog.components.unshift(unrelated);
 
-    const result = await new RoadieScopeResolver(catalog, config).resolve(
+    const result = await new RoadieScopeResolver(catalog).resolve(
       "example/example-service",
     );
 
@@ -236,7 +229,7 @@ describe("RoadieScopeResolver", () => {
       code: "SLACK_ROUTE_MISSING",
       mutate: (catalog: CatalogFixture) => {
         delete catalog.entitiesByRef["group:default/example-team"]!.metadata
-          .annotations["docs.example.com/slack-channel-id"];
+          .annotations["slack.com/channel-id"];
       },
     },
     {
@@ -245,7 +238,7 @@ describe("RoadieScopeResolver", () => {
       mutate: (catalog: CatalogFixture) => {
         catalog.entitiesByRef[
           "group:default/example-team"
-        ]!.metadata.annotations["docs.example.com/slack-channel-id"] =
+        ]!.metadata.annotations["slack.com/channel-id"] =
           "#example-team";
       },
     },
@@ -275,7 +268,7 @@ describe("RoadieScopeResolver", () => {
       const catalog = catalogFixture();
       scenario.mutate(catalog);
 
-      const result = await new RoadieScopeResolver(catalog, config).resolve(
+      const result = await new RoadieScopeResolver(catalog).resolve(
         "example/example-service",
       );
 
@@ -291,10 +284,10 @@ describe("RoadieScopeResolver", () => {
     const catalog = catalogFixture();
     catalog.entitiesByRef[
       "group:default/example-team"
-    ]!.metadata.annotations["docs.example.com/slack-channel-id"] =
+    ]!.metadata.annotations["slack.com/channel-id"] =
       "C9876543210";
 
-    const result = await new RoadieScopeResolver(catalog, config).resolve(
+    const result = await new RoadieScopeResolver(catalog).resolve(
       "example/example-service",
     );
 
@@ -311,11 +304,54 @@ describe("RoadieScopeResolver", () => {
     };
 
     await assert.rejects(
-      new RoadieScopeResolver(catalog, config).resolve(
+      new RoadieScopeResolver(catalog).resolve(
         "example/example-service",
       ),
       /Roadie is unavailable/,
     );
+  });
+
+  it("derives Confluence identity from a Roadie homepage link", async () => {
+    const catalog = catalogFixture();
+    catalog.entitiesByRef[
+      "group:default/example-team"
+    ]!.metadata.links = [
+      {
+        title: "Team homepage",
+        url:
+          "https://craftd-art.atlassian.net/wiki/spaces/DU/overview?homepageId=491629",
+        type: "documentation-confluence-page",
+      },
+    ];
+
+    const result = await new RoadieScopeResolver(catalog).resolve(
+      "example/example-service",
+    );
+
+    assert.equal(result.status, "resolved");
+    if (result.status === "resolved") {
+      assert.deepEqual(
+        result.scope.documents.find(
+          ({ pageId }) => pageId === "491629",
+        ),
+        {
+          siteId: "craftd-art.atlassian.net",
+          pageId: "491629",
+          declarations: [
+            {
+              kind: "exact",
+              excludedPageIds: [],
+              provenance: {
+                entityRef: "group:default/example-team",
+                title: "Team homepage",
+                url:
+                  "https://craftd-art.atlassian.net/wiki/spaces/DU/overview?homepageId=491629",
+              },
+            },
+          ],
+        },
+      );
+    }
   });
 });
 

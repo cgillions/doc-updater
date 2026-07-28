@@ -85,7 +85,17 @@ describe("RepositoryRegistryStore with PostgreSQL", () => {
       firstRefresh,
     );
     await database.repositoryRegistry.updateMany({
-      data: { isPaused: true },
+      data: {
+        isPaused: true,
+        roadieScopeStatus: "RESOLVED",
+        componentRef: "component:default/old-name",
+        systemRef: "system:default/example-system",
+        ownerRef: "group:default/example-team",
+        slackChannelId: "C0123456789",
+        documentationScope: [],
+        configurationHash: "a".repeat(64),
+        lastRoadieRefreshAt: firstRefresh,
+      },
     });
 
     const secondRefresh = new Date("2026-07-23T10:00:00.000Z");
@@ -110,6 +120,14 @@ describe("RepositoryRegistryStore with PostgreSQL", () => {
     assert.equal(repository.isArchived, true);
     assert.equal(repository.isAccessible, true);
     assert.equal(repository.isPaused, true);
+    assert.equal(repository.roadieScopeStatus, "PENDING");
+    assert.equal(repository.componentRef, null);
+    assert.equal(repository.systemRef, null);
+    assert.equal(repository.ownerRef, null);
+    assert.equal(repository.slackChannelId, null);
+    assert.equal(repository.documentationScope, null);
+    assert.equal(repository.configurationHash, null);
+    assert.equal(repository.lastRoadieRefreshAt, null);
     assert.deepEqual(repository.lastInventoryRefreshAt, secondRefresh);
   });
 

@@ -15,6 +15,11 @@ order, pull-request boundaries, and validation checkpoints.
   `npm run build`, and `git diff --check` passing.
 - Do not add fixtures or production code solely to verify behavior guaranteed
   by Eve's documented public contract.
+- Validate model behavior through the production agent, instructions, and
+  authored tools. Do not maintain a second scripted agent that duplicates the
+  production review procedure for deterministic evals.
+- During the POC, use focused tests for trusted application boundaries and
+  recorded sandbox runs for agent judgment and external integration behavior.
 - New execution paths default to disabled or shadow mode. A task may collect
   evidence and persist proposals before its artifact-creation path exists.
 - The model cannot choose repositories, page IDs, Slack routes, or write
@@ -176,17 +181,32 @@ Roadie users for merge or publish authorization.
 
 **Dependencies / size:** Task 3. Medium.
 
-### Task 5: Dispatch bounded, isolated repository sessions through Slack
+### Task 5: Refresh the control plane and dispatch isolated Slack sessions
 
-**Goal:** Replace model-managed fan-out with deterministic job creation,
-claiming, and one root Eve Slack session per repository.
+**Goal:** Run the complete scheduled control-plane path: refresh GitHub and
+Roadie state, create and claim jobs, and start one root Eve Slack session per
+repository.
 
 **Boundaries:** Sessions initially complete with a diagnostic result; they do
-not assess drift or publish anything. Add only the production Slack channel
-needed by the dispatcher, using the existing `slack/docia` connector.
+not assess drift or publish anything. Inventory and scope refresh are trusted
+application code, not model tools. Add only the production Slack channel needed
+by the dispatcher, using the existing `slack/docia` connector.
 
 **Acceptance criteria:**
 
+- Every schedule invocation obtains and atomically persists one complete
+  GitHub App installation inventory before creating jobs. A partial inventory
+  failure leaves the previous materialized registry unchanged and aborts that
+  invocation before enqueue or dispatch.
+- Roadie scope refresh is bounded and resumable, prioritizes new or unresolved
+  repositories, and refreshes stale resolved entries. One Roadie failure does
+  not block unrelated repositories.
+- A transient Roadie failure does not overwrite the last successful
+  projection. Repositories whose projection exceeds the configured maximum age
+  become unschedulable until Roadie is resolved again.
+- Production composition obtains an app-scoped GitHub credential from Vercel
+  Connect and a Roadie service-account token from `ROADIE_API_TOKEN`. Inventory
+  and catalog operations are not exposed as model-visible connections.
 - Incremental jobs use the last successful SHA and current default-branch SHA.
 - The dispatcher separates claim limit from concurrency limit and passes only
   an opaque `reviewJobId` through trusted session auth attributes.
@@ -197,20 +217,26 @@ needed by the dispatcher, using the existing `slack/docia` connector.
 - Duplicate schedule delivery, expired leases, and one repository failure do
   not duplicate or block unrelated jobs.
 
-**Verification:** Deterministic dispatcher tests with a fake `receive`, a local
-schedule dispatch, and stream inspection proving distinct session IDs. Tests
-cover repository-to-channel routing and job idempotency, not Eve's documented
-Slack continuation implementation.
+**Verification:** Focused production-composition tests cover complete-inventory
+failure, bounded Roadie refresh, repository-to-channel routing, and job
+idempotency with a fake `receive`. Trigger the real schedule through Eve's
+built-in local dispatch route and inspect its streams to prove that the
+sandbox GitHub App inventory and Roadie scope produce distinct Slack sessions.
+Do not add a separate development-only synchronization endpoint or test Eve's
+documented Slack continuation implementation.
 
 **Likely files:** `agent/channels/slack.ts`,
 `agent/schedules/dispatch-reviews.ts`, dispatcher/config,
-`agent/tools/load_review_job.ts`, and tests.
+inventory and Roadie production composition, `agent/tools/load_review_job.ts`,
+and focused tests.
 
-**Dependencies / size:** Tasks 2 and 4. Medium.
+**Dependencies / size:** Tasks 2, 3, and 4. Medium.
 
 ### Checkpoint 1: Control plane
 
 - A pilot repository is discovered through GitHub and resolved through Roadie.
+- Installing, removing, or archiving a sandbox repository is reflected by the
+  next successful schedule inventory refresh.
 - Repeated schedules create and claim deterministic jobs without duplicates.
 - Each repository gets an isolated, observable Eve session.
 - No new path can write to GitHub or Confluence.
@@ -243,7 +269,7 @@ and focused tests.
 **Dependencies / size:** Task 5. Medium; split migrations/stores from tools if
 the estimated production diff crosses the delivery limit.
 
-### Task 7: Run repository-documentation reviews in shadow mode
+### Task 7: Validate repository-documentation reviews in shadow mode
 
 **Goal:** Complete the first vertical drift-detection slice for one repository
 without creating a pull request.
@@ -257,14 +283,21 @@ agent receives one job, not a repository list or time-window prompt.
   completion sequence from `system-plan.md`.
 - The session records `no-change`, `in-sync`, `proposal-created`, or
   `incomplete` outcomes with implementation evidence at the reviewed SHA.
-- A deterministic Eve eval covers one real drift fixture and one valid
-  no-drift fixture.
+- The production agent completes one deliberate-drift run and one valid
+  no-drift run against the sandbox repository using the scheduled Slack path.
+- Each pilot run is reconstructable from the Eve stream, persisted evidence,
+  proposal records when applicable, terminal outcome, and immutable GitHub
+  baseline. Neither run creates a GitHub artifact.
 
-**Verification:** Tool tests, deterministic evals with a fixture model,
-typecheck/build, and a shadow run against one pilot repository.
+**Verification:** Focused tests cover authored tool authorization, scope,
+baseline binding, idempotency, and outcome transitions. Run typecheck/build,
+then record one deliberate-drift and one no-drift production-agent shadow run
+against the sandbox repository. Inspect the Eve streams and PostgreSQL records
+rather than reproducing the instructions in a mock eval agent.
 
-**Likely files:** instruction fragments, repository-review tools, `evals/`, and
-existing instruction tests.
+**Likely files:** production instructions, repository-review tools, and focused
+tool and application tests. Pilot evidence belongs in the pull-request or
+checkpoint record rather than a duplicate fixture agent.
 
 **Dependencies / size:** Task 6. Medium.
 
@@ -283,8 +316,10 @@ remain out of scope. The model cannot search outside resolved page IDs.
 - A repository-driven Confluence proposal stores a section-level patch,
   implementation evidence, and exact page baseline.
 
-**Verification:** Restricted-page, stale-version, out-of-scope ID, structured
-content, and shared-page fixture tests plus a suggestion-only pilot run.
+**Verification:** Focused client, scope, and store tests cover restricted
+pages, stale versions, out-of-scope IDs, structured content, and shared pages.
+Run the production agent against one exact sandbox page in suggestion-only
+mode and inspect the persisted baseline, evidence, proposal, and outcome.
 
 **Likely files:** Confluence read client/connection, document store/index,
 candidate tools, migrations, and tests.
@@ -295,8 +330,9 @@ if necessary.
 ### Checkpoint 2: Shadow quality
 
 - Repository and exact-page Confluence proposals are generated without writes.
-- Pilot reviewers measure false positives and missed drift against golden
-  fixtures and live shadow output.
+- Pilot reviewers record expected and observed outcomes for deliberate-drift
+  and no-drift sandbox scenarios, including false positives, missed drift, and
+  incomplete reviews.
 - Proposal evidence, scope, and baselines can be reconstructed from storage.
 - Do not enable approval until proposal precision is acceptable.
 
@@ -324,10 +360,11 @@ creation time. It cannot merge the pull request.
 - No merge capability is exposed. GitHub permissions, branch rules, and
   CODEOWNERS enforce merge authorization independently.
 
-**Verification:** Fake-GitHub failure/retry, stale-base, scope, and idempotency
-tests; connection-surface inspection through Eve info/build output; and one
-pilot pull request. Do not add tests for Eve's approval rendering or durable
-continuation contract.
+**Verification:** Focused application tests with a fake GitHub boundary cover
+failure/retry, stale bases, scope, and idempotency. Inspect the connection
+surface through Eve info/build output and create one approval-gated sandbox
+pull request with the production agent. Do not add a fixture agent or tests for
+Eve's approval rendering or durable continuation contract.
 
 **Likely files:** repository PR-creation tool, GitHub control-plane client,
 GitHub connection, instructions, and tests.
@@ -355,10 +392,11 @@ descendant-root pages until Task 11. The tool cannot publish a live page.
 - Confluence tool credentials and page or space permissions control who may
   publish; publication is absent from the agent tool surface.
 
-**Verification:** Native-content preservation, version-conflict, retry, scope,
-idempotency, and write-surface tests, plus one pilot draft verified as
-unpublished. Do not add tests for Eve's approval rendering or durable
-continuation contract.
+**Verification:** Focused application tests cover native-content preservation,
+version conflicts, retry, scope, idempotency, and the write surface. Create one
+approval-gated sandbox draft with the production agent and verify that it
+remains unpublished. Do not add a fixture agent or tests for Eve's approval
+rendering or durable continuation contract.
 
 **Likely files:** Confluence draft-creation tool, page lock/store, connection
 policy, and tests.
@@ -415,8 +453,10 @@ request and Confluence draft remains approval-gated.
   default-branch changes without inventing commit ranges.
 - A separate process summarizes persisted outcomes without collecting all
   repository results in a parent model context.
-- Metrics and alerts cover queue age, lease recovery, run failures, proposal
-  precision, approval latency, stale conflicts, and artifact outcomes.
+- Metrics and alerts distinguish GitHub inventory failures, Roadie refresh
+  failures, stale scope projections, review dispatch failures, queue age,
+  lease recovery, run failures, proposal precision, approval latency, stale
+  conflicts, and artifact outcomes.
 
 **Verification:** Backlog and rate-limit load tests, missed-schedule recovery,
 failure-injection tests, deployment runbook exercise, and staged rollout from

@@ -1,4 +1,3 @@
-import { getToken } from "@vercel/connect";
 import { z } from "zod";
 
 const CATALOG_PAGE_SIZE = 100;
@@ -162,20 +161,6 @@ export class RoadieCatalogClient {
       },
     });
   }
-}
-
-/**
- * Creates an app-scoped Roadie token provider backed by Vercel Connect.
- *
- * @returns A provider suitable for `RoadieCatalogClient`.
- */
-export function createRoadieAccessTokenProvider(
-  connectorId: string,
-): RoadieAccessTokenProvider {
-  if (connectorId.trim().length === 0) {
-    throw new Error("A Vercel Connect Roadie connector ID is required.");
-  }
-  return () => getToken(connectorId, { subject: { type: "app" } });
 }
 
 function validateApiBaseUrl(value: string | undefined): URL {

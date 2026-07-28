@@ -60,7 +60,7 @@
         "name": "example-team",
         "namespace": "default",
         "annotations": {
-          "docs.example.com/slack-channel-id": "C0123456789",
+          "slack.com/channel-id": "C0123456789",
           "docs.example.com/confluence-exclude-page-ids": "22229, 22230"
         },
         "links": [

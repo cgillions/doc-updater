@@ -82,6 +82,66 @@ export class RepositoryRegistryStore {
           default_branch_head_sha = EXCLUDED.default_branch_head_sha,
           is_accessible = true,
           is_archived = EXCLUDED.is_archived,
+          roadie_scope_status = CASE
+            WHEN repository_registry.repository_full_name
+              IS DISTINCT FROM EXCLUDED.repository_full_name
+              THEN 'PENDING'::"RoadieScopeStatus"
+            ELSE repository_registry.roadie_scope_status
+          END,
+          component_ref = CASE
+            WHEN repository_registry.repository_full_name
+              IS DISTINCT FROM EXCLUDED.repository_full_name
+              THEN NULL
+            ELSE repository_registry.component_ref
+          END,
+          system_ref = CASE
+            WHEN repository_registry.repository_full_name
+              IS DISTINCT FROM EXCLUDED.repository_full_name
+              THEN NULL
+            ELSE repository_registry.system_ref
+          END,
+          owner_ref = CASE
+            WHEN repository_registry.repository_full_name
+              IS DISTINCT FROM EXCLUDED.repository_full_name
+              THEN NULL
+            ELSE repository_registry.owner_ref
+          END,
+          slack_channel_id = CASE
+            WHEN repository_registry.repository_full_name
+              IS DISTINCT FROM EXCLUDED.repository_full_name
+              THEN NULL
+            ELSE repository_registry.slack_channel_id
+          END,
+          documentation_scope = CASE
+            WHEN repository_registry.repository_full_name
+              IS DISTINCT FROM EXCLUDED.repository_full_name
+              THEN NULL
+            ELSE repository_registry.documentation_scope
+          END,
+          catalog_revision = CASE
+            WHEN repository_registry.repository_full_name
+              IS DISTINCT FROM EXCLUDED.repository_full_name
+              THEN NULL
+            ELSE repository_registry.catalog_revision
+          END,
+          configuration_hash = CASE
+            WHEN repository_registry.repository_full_name
+              IS DISTINCT FROM EXCLUDED.repository_full_name
+              THEN NULL
+            ELSE repository_registry.configuration_hash
+          END,
+          roadie_diagnostics = CASE
+            WHEN repository_registry.repository_full_name
+              IS DISTINCT FROM EXCLUDED.repository_full_name
+              THEN '[]'::jsonb
+            ELSE repository_registry.roadie_diagnostics
+          END,
+          last_roadie_refresh_at = CASE
+            WHEN repository_registry.repository_full_name
+              IS DISTINCT FROM EXCLUDED.repository_full_name
+              THEN NULL
+            ELSE repository_registry.last_roadie_refresh_at
+          END,
           last_inventory_refresh_at = EXCLUDED.last_inventory_refresh_at,
           updated_at = EXCLUDED.updated_at
         WHERE repository_registry.last_inventory_refresh_at

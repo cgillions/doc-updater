@@ -14,6 +14,9 @@ import {
 } from "../../roadie/catalog-client.ts";
 
 const PROJECT_SLUG_ANNOTATION = "github.com/project-slug";
+const SLACK_CHANNEL_ANNOTATION = "slack.com/channel-id";
+const CONFLUENCE_EXCLUSIONS_ANNOTATION_SUFFIX =
+  "/confluence-exclude-page-ids";
 const EXACT_LINK_TYPE = "documentation-confluence-page";
 const ROOT_LINK_TYPE = "documentation-confluence-root";
 
@@ -25,16 +28,6 @@ export interface RoadieScopeCatalog {
   ): Promise<RoadieCatalogEntity | null>;
 }
 
-/** Organization-owned metadata keys and approved Confluence sites. */
-export interface RoadieScopeResolverConfig {
-  slackChannelAnnotation: string;
-  confluenceExclusionsAnnotation: string;
-  confluenceSites: ReadonlyArray<{
-    hostname: string;
-    siteId: string;
-  }>;
-}
-
 /**
  * Resolves trusted ownership, Slack routing, and documentation scope.
  *
@@ -43,21 +36,9 @@ export interface RoadieScopeResolverConfig {
  */
 export class RoadieScopeResolver {
   private readonly catalog: RoadieScopeCatalog;
-  private readonly config: RoadieScopeResolverConfig;
-  private readonly confluenceSites: ReadonlyMap<string, string>;
 
-  constructor(
-    catalog: RoadieScopeCatalog,
-    config: RoadieScopeResolverConfig,
-  ) {
+  constructor(catalog: RoadieScopeCatalog) {
     this.catalog = catalog;
-    this.config = validateConfig(config);
-    this.confluenceSites = new Map(
-      this.config.confluenceSites.map((site) => [
-        site.hostname.toLowerCase(),
-        site.siteId,
-      ]),
-    );
   }
 
   /**
@@ -159,7 +140,7 @@ export class RoadieScopeResolver {
     const owner = ownerResult.entity;
     const ownerRef = entityRef(owner);
     const slackChannelId =
-      owner.metadata.annotations[this.config.slackChannelAnnotation];
+      owner.metadata.annotations[SLACK_CHANNEL_ANNOTATION];
     if (!slackChannelId) {
       return repoOnly(
         "SLACK_ROUTE_MISSING",
@@ -242,10 +223,8 @@ export class RoadieScopeResolver {
 
     for (const entity of entities) {
       const sourceRef = entityRef(entity);
-      const exclusionsResult = parseExclusions(
-        entity.metadata.annotations[
-          this.config.confluenceExclusionsAnnotation
-        ],
+      const exclusionsResult = readConfluenceExclusions(
+        entity.metadata.annotations,
       );
       if ("error" in exclusionsResult) {
         return {
@@ -331,8 +310,11 @@ export class RoadieScopeResolver {
     } catch {
       return undefined;
     }
-    const siteId = this.confluenceSites.get(url.hostname.toLowerCase());
-    if (url.protocol !== "https:" || !siteId) {
+    const siteId = url.hostname.toLowerCase();
+    if (
+      url.protocol !== "https:" ||
+      !isConfluenceCloudHostname(siteId)
+    ) {
       return undefined;
     }
     const pathMatch = url.pathname.match(
@@ -342,7 +324,12 @@ export class RoadieScopeResolver {
       url.pathname === "/wiki/pages/viewpage.action"
         ? url.searchParams.get("pageId")
         : undefined;
-    const pageId = pathMatch?.groups?.pageId ?? queryPageId;
+    const homepageId =
+      /^\/wiki\/spaces\/[^/]+\/overview\/?$/.test(url.pathname)
+        ? url.searchParams.get("homepageId")
+        : undefined;
+    const pageId =
+      pathMatch?.groups?.pageId ?? queryPageId ?? homepageId;
     if (!pageId || !/^\d+$/.test(pageId)) {
       return undefined;
     }
@@ -397,6 +384,28 @@ function parseExclusions(
   return { pageIds: pageIds.sort() };
 }
 
+function readConfluenceExclusions(
+  annotations: Record<string, string>,
+): { pageIds: string[] } | { error: true } {
+  const values = Object.entries(annotations)
+    .filter(([key]) =>
+      key.endsWith(CONFLUENCE_EXCLUSIONS_ANNOTATION_SUFFIX),
+    )
+    .map(([, value]) => value);
+  if (values.length > 1) {
+    return { error: true };
+  }
+  return parseExclusions(values[0]);
+}
+
+function isConfluenceCloudHostname(hostname: string): boolean {
+  return (
+    /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.atlassian\.net$/.test(
+      hostname,
+    )
+  );
+}
+
 function compareTargets(
   left: DocumentationTarget,
   right: DocumentationTarget,
@@ -405,36 +414,6 @@ function compareTargets(
     left.siteId.localeCompare(right.siteId) ||
     left.pageId.localeCompare(right.pageId, undefined, { numeric: true })
   );
-}
-
-function validateConfig(
-  config: RoadieScopeResolverConfig,
-): RoadieScopeResolverConfig {
-  if (
-    !config.slackChannelAnnotation.trim() ||
-    !config.confluenceExclusionsAnnotation.trim() ||
-    config.confluenceSites.length === 0
-  ) {
-    throw new Error("Roadie scope resolver configuration is incomplete.");
-  }
-  const hosts = new Set<string>();
-  const siteIds = new Set<string>();
-  for (const site of config.confluenceSites) {
-    const hostname = site.hostname.toLowerCase();
-    if (
-      !hostname ||
-      !site.siteId.trim() ||
-      hosts.has(hostname) ||
-      siteIds.has(site.siteId)
-    ) {
-      throw new Error(
-        "Roadie scope resolver Confluence sites must be unique and complete.",
-      );
-    }
-    hosts.add(hostname);
-    siteIds.add(site.siteId);
-  }
-  return config;
 }
 
 function hashConfiguration(value: object): string {

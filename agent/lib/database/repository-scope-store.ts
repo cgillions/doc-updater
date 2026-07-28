@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import type { RoadieRefreshCandidate } from "../application/repositories/refresh-control-plane.ts";
 import type { RepositoryRoadieResolutionTarget } from "../application/repositories/synchronize-roadie-scope.ts";
 import type { RoadieScopeResolution } from "../domain/documentation/documentation-scope.ts";
 import { Prisma, type PrismaClient } from "./generated/client.ts";
@@ -39,6 +40,49 @@ export class RepositoryScopeStore {
       where: { id: repositoryId },
       select: { id: true, repositoryFullName: true },
     });
+  }
+
+  /**
+   * Selects a bounded refresh batch, prioritizing never-resolved entries.
+   */
+  async listRoadieRefreshCandidates(input: {
+    limit: number;
+    staleBefore: Date;
+  }): Promise<RoadieRefreshCandidate[]> {
+    if (
+      !Number.isInteger(input.limit) ||
+      input.limit < 1 ||
+      input.limit > 100
+    ) {
+      throw new RangeError(
+        "Roadie refresh limit must be between 1 and 100.",
+      );
+    }
+    if (Number.isNaN(input.staleBefore.getTime())) {
+      throw new RangeError("Roadie stale boundary must be valid.");
+    }
+
+    return this.database.$queryRaw<RoadieRefreshCandidate[]>(Prisma.sql`
+      SELECT id AS "repositoryId"
+      FROM repository_registry
+      WHERE is_accessible = true
+        AND is_archived = false
+        AND is_paused = false
+        AND (
+          roadie_scope_status = 'PENDING'::"RoadieScopeStatus"
+          OR last_roadie_refresh_at IS NULL
+          OR last_roadie_refresh_at < ${input.staleBefore}
+        )
+      ORDER BY
+        CASE roadie_scope_status
+          WHEN 'PENDING'::"RoadieScopeStatus" THEN 0
+          WHEN 'REPO_ONLY'::"RoadieScopeStatus" THEN 1
+          ELSE 2
+        END,
+        last_roadie_refresh_at ASC NULLS FIRST,
+        github_repository_id
+      LIMIT ${input.limit}
+    `);
   }
 
   /**

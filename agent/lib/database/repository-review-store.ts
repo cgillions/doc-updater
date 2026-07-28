@@ -10,6 +10,11 @@ interface DueReviewCandidateRow {
   mode: "INCREMENTAL" | "RECONCILIATION";
 }
 
+export interface RepositoryReviewStoreOptions {
+  /** Oldest Roadie projection trusted for enqueue and Slack routing. */
+  roadieFreshAfter: Date;
+}
+
 /**
  * Reads deterministic review inputs from the materialized repository registry.
  *
@@ -18,9 +23,17 @@ interface DueReviewCandidateRow {
  */
 export class RepositoryReviewStore {
   private readonly database: PrismaClient;
+  private readonly roadieFreshAfter: Date;
 
-  constructor(database: PrismaClient) {
+  constructor(
+    database: PrismaClient,
+    options: RepositoryReviewStoreOptions,
+  ) {
     this.database = database;
+    this.roadieFreshAfter = options.roadieFreshAfter;
+    if (Number.isNaN(this.roadieFreshAfter.getTime())) {
+      throw new RangeError("Roadie freshness boundary must be valid.");
+    }
   }
 
   /**
@@ -47,6 +60,7 @@ export class RepositoryReviewStore {
         AND repositories.is_archived = false
         AND repositories.is_paused = false
         AND repositories.roadie_scope_status = 'RESOLVED'::"RoadieScopeStatus"
+        AND repositories.last_roadie_refresh_at >= ${this.roadieFreshAfter}
         AND repositories.slack_channel_id IS NOT NULL
         AND (
           cursors.last_successfully_reviewed_sha IS NULL
@@ -77,6 +91,7 @@ export class RepositoryReviewStore {
           isArchived: false,
           isPaused: false,
           roadieScopeStatus: "RESOLVED",
+          lastRoadieRefreshAt: { gte: this.roadieFreshAfter },
           slackChannelId: { not: null },
         },
       },

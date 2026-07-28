@@ -538,7 +538,7 @@ kind: Group
 metadata:
   name: example-team
   annotations:
-    docs.example.com/slack-channel-id: C0123456789
+    slack.com/channel-id: C0123456789
     docs.example.com/confluence-exclude-page-ids: "12345,67890"
   links:
     - title: Example engineering handbook
@@ -558,7 +558,10 @@ Apply the same link types at different scopes:
 - `Component` links apply only to that component or repository.
 
 A root link includes its Confluence page descendants. Explicit exclusions
-apply only to roots declared on the same entity.
+apply only to roots declared on the same entity. The Slack annotation key is
+the standard `slack.com/channel-id`. The exclusion annotation retains an
+organization-owned prefix; the resolver discovers the single annotation whose
+key ends in `/confluence-exclude-page-ids`.
 
 ### Resolution rules
 
@@ -574,8 +577,9 @@ apply only to roots declared on the same entity.
 5. Require the Component and System ownership chain to be consistent, then
    union Component, System, and Group documentation links.
 6. Expand explicit roots and apply their local exclusions.
-7. Canonicalize and de-duplicate by `{Confluence site ID, page ID}`, never by
-   mutable URL.
+7. Require HTTPS Confluence Cloud links under `*.atlassian.net`, derive the
+   canonical site key from the lower-cased link hostname, and de-duplicate by
+   `{site key, page ID}`, never by mutable URL.
 8. Retain every link's provenance for routing, diagnostics, and audit.
 
 Child entities cannot remove inherited team or system pages. Exclusions remain
@@ -596,7 +600,7 @@ If the component, owner, or system cannot be resolved:
 
 Validate the configuration in CI, including:
 
-- approved Confluence hosts and valid page IDs;
+- valid HTTPS Confluence Cloud hosts and page IDs;
 - canonical Slack channel IDs;
 - valid Roadie entity references;
 - bounded root expansion;
