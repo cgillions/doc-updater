@@ -20,14 +20,14 @@ shadow reviews:
 - the session can load only the opaque job ID bound to trusted app
   authentication; and
 - model-visible filesystem, shell, web, interactive-input, delegation, and
-  write tools are explicitly disabled. The application-owned, approval-gated
-  repository pull-request creator is the only GitHub write path.
+  write tools are explicitly disabled. The application-owned repository
+  pull-request creator is the only GitHub write path.
 
 The dispatched session reads bounded repository content at its immutable SHA
 range, records implementation evidence, and persists a baseline-bound proposal
-when it demonstrates documentation drift. An approved stored repository
-proposal may create one branch, conventional documentation commit, and pull
-request; Confluence remains shadow-only.
+when it demonstrates documentation drift. A stored repository proposal may
+create one branch, conventional documentation commit, and pull request;
+Confluence remains shadow-only.
 
 ## Development
 
@@ -126,7 +126,7 @@ curl -X POST http://localhost:2000/eve/v1/dev/schedules/dispatch-reviews
 
 This is the production schedule path. It refreshes GitHub and Roadie before
 creating due jobs, then starts Slack sessions for repositories with a current
-trusted route. Approved repository proposals can create pull requests through
+trusted route. Repository proposals can create pull requests through
 the application-owned writer. Exact-page Confluence proposals remain
 shadow-only and cannot create drafts or published changes.
 
