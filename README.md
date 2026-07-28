@@ -94,13 +94,13 @@ the GitHub and Slack Vercel Connect integrations.
 
 ## GitHub App permissions
 
-Keep the configured `github/docia-gh` review connector read-only. The
-application-owned pull-request creator separately uses
-`github/docia-pr-writer`, which must be a dedicated GitHub App installation
-with only repository Contents read/write and Pull requests read/write access.
-Do not grant merge, administration, or workflow-management permissions. The
-writer connector is used only after Eve's approval gate accepts the stored
-proposal; model-visible tools never receive its credential or raw write API.
+Use the existing `github/docia-gh` connector for both review reads and the
+application-owned pull-request creator. Its GitHub App installation needs only
+repository Contents read/write and Pull requests read/write access. Do not
+grant merge, administration, or workflow-management permissions. The
+read-only review client exposes no mutation operations; only the approved
+creator uses the app token to write the stored proposal. Model-visible tools
+never receive a credential or raw write API.
 
 When you are finished:
 
@@ -127,7 +127,7 @@ curl -X POST http://localhost:2000/eve/v1/dev/schedules/dispatch-reviews
 This is the production schedule path. It refreshes GitHub and Roadie before
 creating due jobs, then starts Slack sessions for repositories with a current
 trusted route. Approved repository proposals can create pull requests through
-the dedicated writer connector. Exact-page Confluence proposals remain
+the application-owned writer. Exact-page Confluence proposals remain
 shadow-only and cannot create drafts or published changes.
 
 ## Confluence API permissions

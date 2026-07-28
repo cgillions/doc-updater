@@ -3,18 +3,18 @@ import {
 } from "./control-plane-client.ts";
 import { GitHubRepositoryPullRequestClient } from "./repository-pull-request-client.ts";
 
-const GITHUB_PULL_REQUEST_WRITER_CONNECTOR_ID = "github/docia-pr-writer";
+const GITHUB_CONNECTOR_ID = "github/docia-gh";
 
 /**
- * Creates the dedicated application-owned GitHub pull-request writer.
+ * Creates the application-owned GitHub pull-request writer.
  *
- * This connector is intentionally separate from the read-only review
- * connector. Its token is obtained only inside the approved creator tool.
+ * The existing connector's token is obtained only inside the approved creator
+ * tool. The read-only review client exposes no mutation operations.
  */
 export function createGitHubRepositoryPullRequestClient(): GitHubRepositoryPullRequestClient {
   return new GitHubRepositoryPullRequestClient({
     getAccessToken: createGitHubAppAccessTokenProvider(
-      GITHUB_PULL_REQUEST_WRITER_CONNECTOR_ID,
+      GITHUB_CONNECTOR_ID,
     ),
   });
 }
