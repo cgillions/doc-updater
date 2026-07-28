@@ -6,6 +6,7 @@ import type { StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { Pool } from "pg";
 
 import { createDatabaseClient, type DatabaseClient } from "./client.ts";
+import { ReviewJobContextStore } from "./review-job-context-store.ts";
 import { RepositoryReviewStore } from "./repository-review-store.ts";
 
 const BASE_SHA = "a".repeat(40);
@@ -15,6 +16,7 @@ describe("RepositoryReviewStore with PostgreSQL", () => {
   let container: StartedPostgreSqlContainer;
   let database: DatabaseClient;
   let store: RepositoryReviewStore;
+  let contextStore: ReviewJobContextStore;
 
   before(async () => {
     configureTestcontainers();
@@ -37,6 +39,7 @@ describe("RepositoryReviewStore with PostgreSQL", () => {
 
     database = createDatabaseClient({ connectionString });
     store = new RepositoryReviewStore(database);
+    contextStore = new ReviewJobContextStore(database);
   });
 
   after(async () => {
@@ -134,6 +137,102 @@ describe("RepositoryReviewStore with PostgreSQL", () => {
         },
       ],
     );
+  });
+
+  it("loads an active job with its immutable repository and Roadie scope", async () => {
+    const repository = await createRepository(database, 301, "context");
+    await database.repositoryRegistry.update({
+      where: { id: repository.id },
+      data: {
+        documentationScope: [
+          {
+            siteId: "example-site",
+            pageId: "11111",
+            declarations: [
+              {
+                kind: "exact",
+                excludedPageIds: [],
+                provenance: {
+                  entityRef: "group:default/example-team",
+                  title: "Engineering handbook",
+                  url:
+                    "https://example.atlassian.net/wiki/spaces/EXAMPLE/pages/11111",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const job = await database.reviewJob.create({
+      data: {
+        repositoryId: repository.id,
+        baseSha: BASE_SHA,
+        headSha: HEAD_SHA,
+        mode: "INCREMENTAL",
+        deduplicationKey: "context-job",
+        status: "LEASED",
+        attemptCount: 1,
+        leaseOwner: "dispatcher",
+        leaseToken: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        leaseExpiresAt: new Date("2026-07-29T07:30:00.000Z"),
+      },
+    });
+
+    const context = await contextStore.loadActive(job.id);
+
+    assert.deepEqual(context, {
+      reviewJobId: job.id,
+      mode: "INCREMENTAL",
+      baseSha: BASE_SHA,
+      headSha: HEAD_SHA,
+      repository: {
+        id: repository.id,
+        fullName: "example/context",
+        defaultBranch: "main",
+      },
+      roadie: {
+        componentRef: "component:default/context",
+        systemRef: "system:default/example-system",
+        ownerRef: "group:default/example-team",
+        slackChannelId: "C0123456789",
+        catalogRevision: null,
+        configurationHash: "a".repeat(64),
+      },
+      documentationScope: [
+        {
+          siteId: "example-site",
+          pageId: "11111",
+          declarations: [
+            {
+              kind: "exact",
+              excludedPageIds: [],
+              provenance: {
+                entityRef: "group:default/example-team",
+                title: "Engineering handbook",
+                url:
+                  "https://example.atlassian.net/wiki/spaces/EXAMPLE/pages/11111",
+              },
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("does not load jobs that are not actively leased", async () => {
+    const repository = await createRepository(database, 302, "pending");
+    const job = await database.reviewJob.create({
+      data: {
+        repositoryId: repository.id,
+        baseSha: BASE_SHA,
+        headSha: HEAD_SHA,
+        mode: "INCREMENTAL",
+        deduplicationKey: "pending-context-job",
+      },
+    });
+
+    assert.equal(await contextStore.loadActive(job.id), null);
   });
 });
 
