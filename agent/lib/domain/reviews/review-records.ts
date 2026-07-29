@@ -198,6 +198,11 @@ export const createRepositoryPullRequestInputSchema = z.object({
   proposalDigest: digestSchema,
 });
 
+/** Model input for creating one draft from a stored Confluence proposal. */
+export const createConfluenceDraftInputSchema = z.object({
+  proposalDigest: digestSchema,
+});
+
 /** Model input for the terminal outcome of the assigned review job. */
 export const completeReviewJobInputSchema = z.object({
   outcome: z.enum([
@@ -236,6 +241,28 @@ export const repositoryPullRequestRecordSchema = z.object({
   pullRequestUrl: z.url(),
 });
 
+/** Persisted record for an unpublished draft of an existing Confluence page. */
+export const confluenceDraftRecordSchema = z.object({
+  proposalDigest: digestSchema,
+  pageId: z.string().regex(/^\d+$/),
+  draftPageId: z.string().regex(/^\d+$/),
+  draftVersion: z.number().int().positive(),
+  status: z.literal("draft"),
+});
+
+/** Result when Confluence reports an unpublished draft for the target page. */
+export const confluenceDraftBlockedRecordSchema = z.object({
+  proposalDigest: digestSchema,
+  pageId: z.string().regex(/^\d+$/),
+  status: z.literal("blocked-existing-draft"),
+});
+
+/** Result of attempting an approval-gated Confluence draft creation. */
+export const confluenceDraftCreationResultSchema = z.discriminatedUnion(
+  "status",
+  [confluenceDraftRecordSchema, confluenceDraftBlockedRecordSchema],
+);
+
 /** Persisted terminal review result returned to the active session. */
 export const completedReviewJobSchema = completeReviewJobInputSchema.extend({
   reviewJobId: z.uuid(),
@@ -261,6 +288,16 @@ export type CreateRepositoryPullRequestInput = z.infer<
 >;
 export type RepositoryPullRequestRecord = z.infer<
   typeof repositoryPullRequestRecordSchema
+>;
+export type CreateConfluenceDraftInput = z.infer<
+  typeof createConfluenceDraftInputSchema
+>;
+export type ConfluenceDraftRecord = z.infer<typeof confluenceDraftRecordSchema>;
+export type ConfluenceDraftBlockedRecord = z.infer<
+  typeof confluenceDraftBlockedRecordSchema
+>;
+export type ConfluenceDraftCreationResult = z.infer<
+  typeof confluenceDraftCreationResultSchema
 >;
 export type CompleteReviewJobInput = z.infer<
   typeof completeReviewJobInputSchema

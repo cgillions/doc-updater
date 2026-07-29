@@ -127,6 +127,61 @@ describe("ConfluencePageClient", () => {
     );
   });
 
+  it("uses Confluence draft metadata as the source of truth without reading a body", async () => {
+    const requests: string[] = [];
+    const client = new ConfluencePageClient({
+      apiToken: "secret",
+      fetch: async (input) => {
+        requests.push(String(input));
+        if (String(input).endsWith("/_edge/tenant_info")) {
+          return Response.json({ cloudId: CLOUD_ID });
+        }
+        return Response.json({
+          id: "12345",
+          status: "draft",
+          version: { number: 8 },
+        });
+      },
+    });
+
+    const draft = await client.getDraftState({
+      siteId: "example.atlassian.net",
+      pageId: "12345",
+    });
+
+    assert.deepEqual(draft, { pageId: "12345", version: 8 });
+    assert.deepEqual(requests, [
+      "https://example.atlassian.net/_edge/tenant_info",
+      `https://api.atlassian.com/ex/confluence/${CLOUD_ID}` +
+        "/wiki/api/v2/pages/12345?get-draft=true",
+    ]);
+  });
+
+  it("reports no draft only when Confluence returns the current page", async () => {
+    let requests = 0;
+    const client = new ConfluencePageClient({
+      apiToken: "secret",
+      fetch: async () => {
+        requests += 1;
+        return requests === 1
+          ? Response.json({ cloudId: CLOUD_ID })
+          : Response.json({
+              id: "12345",
+              status: "current",
+              version: { number: 7 },
+            });
+      },
+    });
+
+    assert.equal(
+      await client.getDraftState({
+        siteId: "example.atlassian.net",
+        pageId: "12345",
+      }),
+      null,
+    );
+  });
+
   it("resolves each trusted site cloud ID once", async () => {
     let tenantRequests = 0;
     const client = new ConfluencePageClient({

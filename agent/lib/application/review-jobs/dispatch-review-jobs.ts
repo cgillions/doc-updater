@@ -266,13 +266,10 @@ async function mapWithConcurrency<TInput, TOutput>(
   let nextIndex = 0;
 
   async function worker(): Promise<void> {
-    for (;;) {
+    while (nextIndex < values.length) {
       const currentIndex = nextIndex;
-      nextIndex += 1;
-      if (currentIndex >= values.length) {
-        return;
-      }
       results[currentIndex] = await mapper(values[currentIndex]!);
+      nextIndex += 1;
     }
   }
 

@@ -23,6 +23,14 @@ const pageSchema = z.object({
   }),
 });
 
+const draftStateSchema = z.object({
+  id: z.string().regex(/^\d+$/),
+  status: z.string().min(1),
+  version: z.object({
+    number: z.number().int().positive(),
+  }),
+});
+
 const tenantSchema = z.object({
   cloudId: z.uuid(),
 });
@@ -45,6 +53,12 @@ export class ConfluencePageRequestError extends Error {
     this.name = "ConfluencePageRequestError";
     this.status = status;
   }
+}
+
+/** Minimal external draft state used to decide whether a page may be updated. */
+export interface ConfluenceDraftState {
+  pageId: string;
+  version: number;
 }
 
 /** Reads exact Confluence Cloud pages without exposing credentials or search. */
@@ -120,6 +134,55 @@ export class ConfluencePageClient {
       bodyHash: hashConfluenceBody(page.body.storage.value),
       fetchedAt,
     };
+  }
+
+  /**
+   * Reads only Confluence's current-or-draft metadata for a trusted page.
+   *
+   * Source: https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/
+   */
+  async getDraftState(
+    target: ConfluencePageTarget,
+  ): Promise<ConfluenceDraftState | null> {
+    validateTarget(target);
+    const cloudId = await this.resolveCloudId(target.siteId);
+    const url = new URL(
+      `/ex/confluence/${cloudId}/wiki/api/v2/pages/${target.pageId}`,
+      "https://api.atlassian.com",
+    );
+    url.searchParams.set("get-draft", "true");
+    const response = await this.fetch(url, {
+      headers: {
+        Accept: "application/json",
+        Authorization: this.authorization,
+      },
+      redirect: "error",
+    });
+    if (!response.ok) {
+      throw new ConfluencePageRequestError(response.status);
+    }
+    const declaredLength = Number(response.headers.get("content-length"));
+    if (
+      Number.isFinite(declaredLength) &&
+      declaredLength > this.maxPageBytes
+    ) {
+      throw new RangeError("Confluence page response exceeds the byte limit.");
+    }
+    const responseBody = await response.text();
+    if (Buffer.byteLength(responseBody) > this.maxPageBytes) {
+      throw new RangeError("Confluence page response exceeds the byte limit.");
+    }
+    const page = draftStateSchema.parse(JSON.parse(responseBody));
+    if (page.id !== target.pageId) {
+      throw new Error("Confluence returned an unexpected page identity or status.");
+    }
+    if (page.status === "current") {
+      return null;
+    }
+    if (page.status !== "draft") {
+      throw new Error("Confluence returned an unexpected page identity or status.");
+    }
+    return { pageId: page.id, version: page.version.number };
   }
 
   private resolveCloudId(siteId: string): Promise<string> {

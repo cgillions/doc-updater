@@ -20,14 +20,15 @@ shadow reviews:
 - the session can load only the opaque job ID bound to trusted app
   authentication; and
 - model-visible filesystem, shell, web, interactive-input, delegation, and
-  write tools are explicitly disabled. The application-owned, approval-gated
-  repository pull-request creator is the only GitHub write path.
+  general-purpose write tools are explicitly disabled. Application-owned,
+  approval-gated creators are the only GitHub and Confluence write paths.
 
 The dispatched session reads bounded repository content at its immutable SHA
 range, records implementation evidence, and persists a baseline-bound proposal
 when it demonstrates documentation drift. An approved stored repository
 proposal may create one branch, conventional documentation commit, and pull
-request; Confluence remains shadow-only.
+request. An approved exact-page Confluence proposal may create one unpublished
+draft; it cannot publish the page.
 
 ## Development
 
@@ -140,13 +141,24 @@ repository can be scheduled again with:
 This is the production schedule path. It refreshes GitHub and Roadie before
 creating due jobs, then starts Slack sessions for repositories with a current
 trusted route. Approved repository proposals can create pull requests through
-the application-owned writer. Exact-page Confluence proposals remain
-shadow-only and cannot create drafts or published changes.
+the application-owned writer. Approved exact-page Confluence proposals can
+create unpublished drafts through a separate writer; neither writer can merge
+or publish.
+
+Immediately before a Confluence write, the application reads Confluence draft
+metadata as the source of truth. Local draft artifacts are immutable audit
+history, not an active-draft gate. The Confluence API does not provide an
+atomic no-draft precondition, so an external draft created after that read can
+still race the write. Client logic cannot make that narrow window
+non-destructive, so the application does not use stored artifacts to resolve
+the conflict.
 
 ## Confluence API permissions
 
-Create a Confluence service account and an API token with only the granular
-`read:page:confluence` scope. Grant the service account permission to view each
-declared sandbox page and its space.
+Create a Confluence service account and an API token with the granular
+`read:page:confluence` and `write:page:confluence` scopes. Grant the service
+account permission to view and update each declared sandbox page and its space.
+The application only writes an approved draft for an existing exact-linked page;
+it has no create, publish, delete, move, permission, or space-management path.
 
 The token can be configured to expire after at most one year.
