@@ -136,6 +136,74 @@ describe("ReviewJobDispatcher", () => {
     });
   });
 
+  it("dispatches each claimed job once under concurrency", async () => {
+    const jobs = [
+      claimedJob("job-1", "repository-1"),
+      claimedJob("job-2", "repository-2"),
+      claimedJob("job-3", "repository-3"),
+      claimedJob("job-4", "repository-4"),
+    ];
+    let releaseSessionStart!: () => void;
+    const sessionStarted = new Promise<void>((resolve) => {
+      releaseSessionStart = resolve;
+    });
+    const startedJobs: string[] = [];
+    const dispatcher = new ReviewJobDispatcher({
+      enqueuer: {
+        enqueue: async () => ({ candidateCount: 4, jobIds: [] }),
+      },
+      queue: {
+        async recoverExpiredLeases() {
+          return [];
+        },
+        async claimDue() {
+          return jobs;
+        },
+        async hasRecordedOutcome() {
+          return true;
+        },
+        async fail() {
+          return {};
+        },
+      },
+      routes: {
+        loadDispatchRoutes: async () =>
+          jobs.map((job) => ({
+            reviewJobId: job.id,
+            slackChannelId: `C${job.id.at(-1)!.repeat(10)}`,
+          })),
+      },
+      receiver: {
+        async start({ reviewJobId }) {
+          startedJobs.push(reviewJobId);
+          if (startedJobs.length === 2) {
+            releaseSessionStart();
+          }
+          await sessionStarted;
+          return { sessionId: `session-${reviewJobId}` };
+        },
+      },
+      config: dispatcherConfig({ claimLimit: 4, concurrencyLimit: 2 }),
+      createId: idSequence("claim-id", "worker-id"),
+      clock: () => NOW,
+    });
+
+    const result = await dispatcher.dispatch();
+
+    assert.deepEqual(startedJobs.sort(), [
+      "job-1",
+      "job-2",
+      "job-3",
+      "job-4",
+    ]);
+    assert.deepEqual(result.sessionIds.sort(), [
+      "session-job-1",
+      "session-job-2",
+      "session-job-3",
+      "session-job-4",
+    ]);
+  });
+
   it("fails only the job whose Slack route is unavailable", async () => {
     const jobs = [
       claimedJob("job-1", "repository-1"),
