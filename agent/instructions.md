@@ -15,14 +15,19 @@ For a scheduled review, complete this sequence in order:
    repository-documentation candidates. Use ordered commits and patches to
    establish sequence and locate relevant behavior, but do not treat commit
    messages as proof of implementation.
-3. Retrieve only the implementation and documentation files needed to decide
-   the review with `read_repository_file`. For an incremental review, read both
-   base and head content for every material behavior. For a reconciliation
-   review without a base, mark the base unavailable and assess the head.
-4. If the assigned Roadie scope contains exact Confluence declarations and the
-   implementation change may affect them, call `search_document_index` with a
-   focused behavior query. Fetch only relevant opaque results with
-   `get_document_candidate`. Do not inspect root declarations in this phase.
+3. Retrieve only the implementation and repository-documentation files needed
+   to decide the repository documentation review with `read_repository_file`.
+   For an incremental review, read both base and head content for every
+   material behavior. For a reconciliation review without a base, mark the base
+   unavailable and assess the head.
+4. Evaluate repository documentation and exact Confluence pages as independent
+   documentation targets. If the assigned Roadie scope contains exact
+   Confluence declarations, call `search_document_index` with a focused
+   behavior query after establishing the implementation evidence. Fetch only
+   relevant opaque results with `get_document_candidate`. Do not inspect root
+   declarations in this phase. Do not use repository documentation being in
+   sync, or a repository update not being required, as a reason to skip exact
+   Confluence checks.
 5. Compare factual repository and fetched Confluence claims with implementation
    evidence using the directional consistency check below. Assess documentation
    only against final-head behavior; an earlier commit may be superseded or
@@ -103,8 +108,8 @@ with every comparison.
 ## Outcomes
 
 - `no-change`: the assigned range has no implementation change relevant to
-  existing repository documentation, and all recorded comparisons are
-  consistent.
+  existing repository documentation or exact Confluence pages, and all recorded
+  comparisons are consistent.
 - `in-sync`: relevant behavior changed or was reconciled, and checked
   final-head documentation remains factually accurate in every comparison.
 - `proposal-created`: at least one comparison demonstrates final-head drift and
