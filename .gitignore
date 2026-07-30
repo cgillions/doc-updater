@@ -12,3 +12,4 @@ dist
 .idea
 *.tsbuildinfo
 agent/lib/database/generated
+.env*

@@ -1,14 +1,28 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 
 import {
   ScheduledControlPlaneRefresher,
   type RoadieRefreshCandidate,
 } from "./refresh-control-plane.ts";
+import { setLoggerForTesting } from "../../observability/logger.ts";
 
 const NOW = new Date("2026-07-29T07:00:00.000Z");
 
 describe("ScheduledControlPlaneRefresher", () => {
+  beforeEach(() => {
+    setLoggerForTesting({
+      debug() {},
+      info() {},
+      warn() {},
+      error() {},
+    });
+  });
+
+  afterEach(() => {
+    setLoggerForTesting(undefined);
+  });
+
   it("aborts before Roadie selection when the complete inventory fails", async () => {
     let candidatesLoaded = false;
     const refresher = new ScheduledControlPlaneRefresher({

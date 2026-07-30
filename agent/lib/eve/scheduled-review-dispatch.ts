@@ -20,7 +20,10 @@ import {
 import {
   RoadieCatalogClient,
 } from "../roadie/catalog-client.ts";
+import { createLogger, durationMs } from "../observability/logger.ts";
 import { createSlackReviewSessionReceiver } from "./review-session-receiver.ts";
+
+const logger = createLogger("scheduled-review-dispatch");
 
 /**
  * Composes one scheduled dispatch against the production control plane.
@@ -31,9 +34,13 @@ import { createSlackReviewSessionReceiver } from "./review-session-receiver.ts";
 export async function runScheduledReviewDispatch(
   args: Pick<ScheduleHandlerArgs, "receive" | "appAuth">,
 ): Promise<void> {
+  const startedAt = process.hrtime.bigint();
   const database = createDatabaseClient();
   try {
     const invocationTime = new Date();
+    logger.info("scheduled review dispatch started", {
+      invocationTime: invocationTime.toISOString(),
+    });
     const refreshConfig = loadControlPlaneRefreshConfig();
     const registry = new RepositoryRegistryStore(database);
     const scopes = new RepositoryScopeStore(database);
@@ -61,10 +68,9 @@ export async function runScheduledReviewDispatch(
       config: refreshConfig,
     }).refresh(invocationTime);
     if (refreshResult.roadieFailedRepositoryIds.length > 0) {
-      console.warn(
-        "Roadie scope refresh failed for repository IDs:",
-        refreshResult.roadieFailedRepositoryIds.join(", "),
-      );
+      logger.warn("Roadie scope refresh had failures", {
+        failedRepositoryIds: refreshResult.roadieFailedRepositoryIds,
+      });
     }
 
     const queue = new ReviewJobStore(database);
@@ -84,8 +90,20 @@ export async function runScheduledReviewDispatch(
       ),
       config: loadReviewDispatchConfig(),
     });
-    await dispatcher.dispatch();
+    const dispatchResult = await dispatcher.dispatch();
+    logger.info("scheduled review dispatch completed", {
+      ...dispatchResult,
+      durationMs: durationMs(startedAt),
+    });
+  } catch (error) {
+    logger.error("scheduled review dispatch failed", {
+      durationMs: durationMs(startedAt),
+      errorMessage:
+        error instanceof Error ? error.message : "Unknown dispatch failure.",
+    });
+    throw error;
   } finally {
     await database.$disconnect();
+    logger.info("scheduled review dispatch database disconnected");
   }
 }

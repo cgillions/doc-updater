@@ -9,6 +9,11 @@ import {
   validateBatchSize,
   validateLeaseDuration,
 } from "../../domain/review-jobs/review-job-policy.ts";
+import {
+  createLogger,
+  durationMs,
+  type Logger,
+} from "../../observability/logger.ts";
 import type { DueReviewJobEnqueuer } from "./enqueue-due-reviews.ts";
 
 /** Lease fields required to dispatch one review session. */
@@ -79,6 +84,7 @@ export interface ReviewJobDispatcherOptions {
   config: ReviewJobDispatcherConfig;
   createId?: () => string;
   clock?: () => Date;
+  logger?: Logger;
 }
 
 /**
@@ -95,6 +101,7 @@ export class ReviewJobDispatcher {
   private readonly config: ReviewJobDispatcherConfig;
   private readonly createId: () => string;
   private readonly clock: () => Date;
+  private readonly logger: Logger;
 
   constructor(options: ReviewJobDispatcherOptions) {
     this.enqueuer = options.enqueuer;
@@ -104,6 +111,7 @@ export class ReviewJobDispatcher {
     this.config = validateReviewJobDispatcherConfig(options.config);
     this.createId = options.createId ?? randomUUID;
     this.clock = options.clock ?? (() => new Date());
+    this.logger = options.logger ?? createLogger("review-dispatcher");
   }
 
   /**
@@ -113,13 +121,33 @@ export class ReviewJobDispatcher {
    * claim reuses the exact same parameters.
    */
   async dispatch(): Promise<ReviewJobDispatchResult> {
+    const startedAt = process.hrtime.bigint();
     const claimId = this.createId();
     const workerId = this.createId();
     const invocationTime = this.clock();
+    this.logger.info("review dispatch started", {
+      claimId,
+      workerId,
+      claimLimit: this.config.claimLimit,
+      claimAttempts: this.config.claimAttempts,
+      concurrencyLimit: this.config.concurrencyLimit,
+      leaseForMs: this.config.leaseForMs,
+    });
     const enqueueResult = await this.enqueuer.enqueue(invocationTime);
+    this.logger.info("due review jobs enqueued", {
+      claimId,
+      workerId,
+      candidateCount: enqueueResult.candidateCount,
+      jobCount: enqueueResult.jobIds.length,
+    });
     const recovered = await this.queue.recoverExpiredLeases({
       limit: this.config.claimLimit,
       now: invocationTime,
+    });
+    this.logger.info("expired review leases recovered", {
+      claimId,
+      workerId,
+      recoveredLeaseCount: recovered.length,
     });
     const jobs = await this.claimWithRetry({
       claimId,
@@ -128,18 +156,32 @@ export class ReviewJobDispatcher {
       leaseForMs: this.config.leaseForMs,
       now: invocationTime,
     });
+    this.logger.info("review jobs claimed", {
+      claimId,
+      workerId,
+      claimedCount: jobs.length,
+      repositoryIds: jobs.map(({ repositoryId }) => repositoryId),
+    });
     const routes = new Map(
       (
         await this.routes.loadDispatchRoutes(jobs.map(({ id }) => id))
       ).map((route) => [route.reviewJobId, route.slackChannelId]),
     );
+    this.logger.info("review dispatch routes loaded", {
+      claimId,
+      workerId,
+      routeCount: routes.size,
+      missingRouteJobIds: jobs
+        .filter((job) => !routes.has(job.id))
+        .map((job) => job.id),
+    });
 
     const outcomes = await mapWithConcurrency(
       jobs,
       this.config.concurrencyLimit,
       (job) => this.dispatchJob(job, routes.get(job.id)),
     );
-    return {
+    const result = {
       claimId,
       workerId,
       candidateCount: enqueueResult.candidateCount,
@@ -151,6 +193,11 @@ export class ReviewJobDispatcher {
         sessionId ? [sessionId] : [],
       ),
     };
+    this.logger.info("review dispatch completed", {
+      ...result,
+      durationMs: durationMs(startedAt),
+    });
+    return result;
   }
 
   private async claimWithRetry(
@@ -159,9 +206,23 @@ export class ReviewJobDispatcher {
     let lastError: unknown;
     for (let attempt = 1; attempt <= this.config.claimAttempts; attempt += 1) {
       try {
-        return await this.queue.claimDue(input);
+        const jobs = await this.queue.claimDue(input);
+        this.logger.info("review job claim attempt completed", {
+          attempt,
+          claimId: input.claimId,
+          claimedCount: jobs.length,
+          workerId: input.workerId,
+        });
+        return jobs;
       } catch (error) {
         lastError = error;
+        this.logger.warn("review job claim attempt failed", {
+          attempt,
+          claimId: input.claimId,
+          errorMessage: errorMessage(error),
+          remainingAttempts: this.config.claimAttempts - attempt,
+          workerId: input.workerId,
+        });
       }
     }
     throw lastError;
@@ -172,6 +233,10 @@ export class ReviewJobDispatcher {
     slackChannelId: string | undefined,
   ): Promise<{ completed: boolean; sessionId?: string }> {
     if (!slackChannelId) {
+      this.logger.warn("review job has no Slack route", {
+        jobId: job.id,
+        repositoryId: job.repositoryId,
+      });
       await this.failJob(
         job,
         "SLACK_ROUTE_UNAVAILABLE",
@@ -181,6 +246,11 @@ export class ReviewJobDispatcher {
     }
 
     try {
+      this.logger.info("review session starting", {
+        jobId: job.id,
+        repositoryId: job.repositoryId,
+        slackChannelId,
+      });
       const session = await this.receiver.start({
         reviewJobId: job.id,
         slackChannelId,
@@ -190,8 +260,18 @@ export class ReviewJobDispatcher {
           "The review session settled without recording a terminal outcome.",
         );
       }
+      this.logger.info("review session completed", {
+        jobId: job.id,
+        repositoryId: job.repositoryId,
+        sessionId: session.sessionId,
+      });
       return { completed: true, sessionId: session.sessionId };
     } catch (error) {
+      this.logger.warn("review session failed", {
+        jobId: job.id,
+        repositoryId: job.repositoryId,
+        errorMessage: errorMessage(error),
+      });
       await this.failJob(
         job,
         "REVIEW_SESSION_FAILED",
@@ -218,9 +298,22 @@ export class ReviewJobDispatcher {
           failedAt.getTime() + this.config.failureRetryMs,
         ),
       });
+      this.logger.info("review job failure persisted", {
+        code,
+        jobId: job.id,
+        repositoryId: job.repositoryId,
+        retryAt: new Date(
+          failedAt.getTime() + this.config.failureRetryMs,
+        ).toISOString(),
+      });
     } catch {
       // Lease expiry provides a second recovery path if failure persistence
       // itself is unavailable. This job must not block unrelated sessions.
+      this.logger.error("review job failure persistence failed", {
+        code,
+        jobId: job.id,
+        repositoryId: job.repositoryId,
+      });
     }
   }
 }

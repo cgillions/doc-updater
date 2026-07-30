@@ -1,4 +1,9 @@
 import type { RepositoryInventorySyncResult } from "./synchronize-repository-inventory.ts";
+import {
+  createLogger,
+  durationMs,
+  type Logger,
+} from "../../observability/logger.ts";
 
 /** Repository selected for one bounded Roadie scope refresh. */
 export interface RoadieRefreshCandidate {
@@ -39,6 +44,7 @@ export interface ScheduledControlPlaneRefresherOptions {
     synchronize(repositoryId: string, refreshedAt: Date): Promise<unknown>;
   };
   config: ScheduledControlPlaneRefreshConfig;
+  logger?: Logger;
 }
 
 /**
@@ -50,15 +56,24 @@ export interface ScheduledControlPlaneRefresherOptions {
  */
 export class ScheduledControlPlaneRefresher {
   private readonly options: ScheduledControlPlaneRefresherOptions;
+  private readonly logger: Logger;
 
   constructor(options: ScheduledControlPlaneRefresherOptions) {
     this.options = options;
+    this.logger = options.logger ?? createLogger("control-plane-refresh");
   }
 
   async refresh(
     refreshedAt: Date = new Date(),
   ): Promise<ScheduledControlPlaneRefreshResult> {
+    const startedAt = process.hrtime.bigint();
+    this.logger.info("control plane refresh started", {
+      refreshedAt: refreshedAt.toISOString(),
+      roadieRefreshIntervalMs: this.options.config.roadieRefreshIntervalMs,
+      roadieRefreshLimit: this.options.config.roadieRefreshLimit,
+    });
     const inventory = await this.options.inventory.synchronize(refreshedAt);
+    this.logger.info("GitHub inventory synchronized", { ...inventory });
     const candidates = (
       await this.options.candidates.listRoadieRefreshCandidates({
         limit: this.options.config.roadieRefreshLimit,
@@ -70,6 +85,10 @@ export class ScheduledControlPlaneRefresher {
     ).slice(0, this.options.config.roadieRefreshLimit);
     const failedRepositoryIds: string[] = [];
     let refreshedCount = 0;
+    this.logger.info("Roadie refresh candidates loaded", {
+      candidateCount: candidates.length,
+      repositoryIds: candidates.map(({ repositoryId }) => repositoryId),
+    });
 
     for (const candidate of candidates) {
       try {
@@ -78,16 +97,27 @@ export class ScheduledControlPlaneRefresher {
           refreshedAt,
         );
         refreshedCount += 1;
+        this.logger.info("Roadie scope synchronized", {
+          repositoryId: candidate.repositoryId,
+        });
       } catch {
         failedRepositoryIds.push(candidate.repositoryId);
+        this.logger.warn("Roadie scope synchronization failed", {
+          repositoryId: candidate.repositoryId,
+        });
       }
     }
 
-    return {
+    const result = {
       ...inventory,
       roadieCandidateCount: candidates.length,
       roadieRefreshedCount: refreshedCount,
       roadieFailedRepositoryIds: failedRepositoryIds,
     };
+    this.logger.info("control plane refresh completed", {
+      ...result,
+      durationMs: durationMs(startedAt),
+    });
+    return result;
   }
 }

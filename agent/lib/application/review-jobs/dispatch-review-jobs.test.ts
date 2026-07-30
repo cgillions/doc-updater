@@ -1,16 +1,30 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 
 import {
   ReviewJobDispatcher,
   type DispatchableReviewJob,
   type ReviewJobDispatcherConfig,
 } from "./dispatch-review-jobs.ts";
+import type {
+  LogAttributes,
+  Logger,
+  LogLevel,
+} from "../../observability/logger.ts";
+import { setLoggerForTesting } from "../../observability/logger.ts";
 
 const NOW = new Date("2026-07-29T07:00:00.000Z");
 const LEASE_TOKEN = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 describe("ReviewJobDispatcher", () => {
+  beforeEach(() => {
+    setLoggerForTesting(captureLogger([]));
+  });
+
+  afterEach(() => {
+    setLoggerForTesting(undefined);
+  });
+
   it("reuses one claim ID after a lost claim response", async () => {
     const claimIds: string[] = [];
     let claimAttempt = 0;
@@ -256,6 +270,78 @@ describe("ReviewJobDispatcher", () => {
     assert.equal(result.failedCount, 1);
   });
 
+  it("logs retry, route, and completion progress", async () => {
+    const job = claimedJob("job-1", "repository-1");
+    const logs: CapturedLog[] = [];
+    let claimAttempt = 0;
+    const dispatcher = new ReviewJobDispatcher({
+      enqueuer: {
+        enqueue: async () => ({ candidateCount: 1, jobIds: [job.id] }),
+      },
+      queue: {
+        async recoverExpiredLeases() {
+          return [];
+        },
+        async claimDue() {
+          claimAttempt += 1;
+          if (claimAttempt === 1) {
+            throw new Error("Temporary database timeout.");
+          }
+          return [job];
+        },
+        async hasRecordedOutcome() {
+          return true;
+        },
+        async fail() {
+          return {};
+        },
+      },
+      routes: {
+        loadDispatchRoutes: async () => [
+          { reviewJobId: job.id, slackChannelId: "C0123456789" },
+        ],
+      },
+      receiver: {
+        start: async () => ({ sessionId: "session-1" }),
+      },
+      config: dispatcherConfig(),
+      createId: idSequence("claim-id", "worker-id"),
+      clock: () => NOW,
+      logger: captureLogger(logs),
+    });
+
+    await dispatcher.dispatch();
+
+    assert.equal(
+      logs.some(
+        (log) =>
+          log.level === "warn" &&
+          log.message === "review job claim attempt failed" &&
+          log.attributes.attempt === 1,
+      ),
+      true,
+    );
+    assert.equal(
+      logs.some(
+        (log) =>
+          log.message === "review dispatch routes loaded" &&
+          Array.isArray(log.attributes.missingRouteJobIds) &&
+          log.attributes.missingRouteJobIds.length === 0,
+      ),
+      true,
+    );
+    assert.equal(
+      logs.some(
+        (log) =>
+          log.message === "review dispatch completed" &&
+          log.attributes.completedCount === 1 &&
+          log.attributes.failedCount === 0 &&
+          typeof log.attributes.durationMs === "number",
+      ),
+      true,
+    );
+  });
+
   it("requeues a settled session that omitted its terminal outcome", async () => {
     const job = claimedJob("job-1", "repository-1");
     const failures: Array<{ code: string; message: string }> = [];
@@ -328,4 +414,27 @@ function dispatcherConfig(
 function idSequence(...ids: string[]): () => string {
   let index = 0;
   return () => ids[index++] ?? `unexpected-${index}`;
+}
+
+interface CapturedLog {
+  level: LogLevel;
+  message: string;
+  attributes: LogAttributes;
+}
+
+function captureLogger(logs: CapturedLog[]): Logger {
+  return {
+    debug(message, attributes = {}) {
+      logs.push({ level: "debug", message, attributes });
+    },
+    info(message, attributes = {}) {
+      logs.push({ level: "info", message, attributes });
+    },
+    warn(message, attributes = {}) {
+      logs.push({ level: "warn", message, attributes });
+    },
+    error(message, attributes = {}) {
+      logs.push({ level: "error", message, attributes });
+    },
+  };
 }
