@@ -6,11 +6,15 @@ description: Use before writing any Slack-facing repository documentation review
 
 Use this skill for every message that will be posted to Slack.
 
+This skill drafts Slack-facing content. Loading it does not send a message,
+select a Slack destination, create a thread, or perform a workflow transition.
+The Slack channel owns delivery and thread binding.
+
 ## Style
 
 - Be warm, concise, and teammate-facing.
 - Start with a friendly greeting similar to "Hey team, I spotted something that needs to be updated" or "Good job guys, the docs for repo <repo-url|repo-name> are all in sync".
-- Use Slack emoji shortcodes where they help scanning: `:eyes:` for review/drift, `:white_check_mark:` for in-sync or complete, `:speech_bubble:` for decisions or human input, etc.
+- Use Slack emoji shortcodes where they help the reader understand motive quickly.
 - Prefer plain English over audit language. Write for maintainers, not for logs.
 - Keep confidence bounded. Say what was checked and what needs action concisely, without overstating proof.
 
@@ -50,6 +54,33 @@ Next step:
 ```
 
 For very small updates, keep the same order but collapse to one short paragraph.
+
+## Approval Context
+
+Immediately before an approval-gated repository pull request or Confluence
+draft call, emit this exact envelope and request the gated tool in the same
+assistant step:
+
+```text
+<slack_approval_context>
+Hey team, I found a docs update that needs approval :speech_bubble:
+
+Summary of change:
+<one short sentence explaining what will be created and why>
+
+Evidence checked:
+- <one evidence-backed implementation point>
+- <one evidence-backed documentation point>
+- <optional narrowness or safety point>
+
+I need approval to create a [pull request | draft]. Please review the approval request in this thread.
+</slack_approval_context>
+```
+
+The envelope tags are an internal delivery marker. The Slack channel removes
+them before posting. Never emit this envelope as a standalone terminal
+response: it must accompany `create_repository_pull_request` or
+`create_confluence_draft` in the same assistant step.
 
 ## Outcome Patterns
 
@@ -115,6 +146,23 @@ What I checked:
 
 Next step:
 Someone should review the docs manually before relying on them.
+```
+
+### Existing Confluence Draft
+
+```text
+Hey team, I found a docs update that needs a decision :speech_bubble:
+
+Repo: <repo-url|repo-name>
+Page: <page-url|page-name>
+Status: The page needs the proposed update, but I did not create a draft because an existing draft already exists.
+
+What I checked:
+- <the implementation behavior that changed>
+- <the page claim that needs updating and the proposed correction>
+
+Next step:
+Please reconcile the existing draft with this proposed change. No new draft was created, so existing work is preserved.
 ```
 
 ## Final Check Before Sending

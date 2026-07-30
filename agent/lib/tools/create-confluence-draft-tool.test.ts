@@ -26,14 +26,32 @@ test("blocked Confluence drafts require a detailed Slack-thread report", async (
     new URL("../../instructions.md", import.meta.url),
     "utf8",
   );
-
-  assert.match(instructions, /Confluence reported that the page already has a draft/);
-  assert.match(
-    instructions,
-    /stored artifact\s+history does not decide this outcome/,
+  const confluenceSkill = await readFile(
+    new URL(
+      "../../skills/confluence-change-proposal/SKILL.md",
+      import.meta.url,
+    ),
+    "utf8",
   );
-  assert.match(instructions, /Status: The page needs the proposed update/);
-  assert.match(instructions, /What I checked:/);
-  assert.match(instructions, /Next step:/);
-  assert.match(instructions, /No new draft was\s+created so existing work is preserved/);
+  const slackSkill = await readFile(
+    new URL("../../skills/slack-communication/SKILL.md", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(instructions, /load `confluence-change-proposal`/);
+  assert.match(
+    confluenceSkill,
+    /Confluence\s+reported that the page already has a draft/,
+  );
+  assert.match(
+    confluenceSkill,
+    /stored artifact history does not\s+decide this outcome/i,
+  );
+  assert.match(slackSkill, /Status: The page needs the proposed update/);
+  assert.match(slackSkill, /What I checked:/);
+  assert.match(slackSkill, /Next step:/);
+  assert.match(
+    slackSkill,
+    /No new draft was created, so existing work is preserved/,
+  );
 });
