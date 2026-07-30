@@ -6,10 +6,13 @@ import {
 import type {
   RepositoryFileCoordinates,
   RepositoryReviewCoordinates,
+  RepositorySearchCoordinates,
 } from "../../github/repository-review-client.ts";
 import type {
   RepositoryFileContent,
   RepositoryFileRequest,
+  RepositorySearchRequest,
+  RepositorySearchResponse,
   RepositoryReviewScope,
 } from "../../domain/repositories/repository-review.ts";
 
@@ -21,6 +24,27 @@ export interface RepositoryReviewSource {
   readFile(
     coordinates: RepositoryFileCoordinates,
   ): Promise<RepositoryFileContent>;
+  search(
+    coordinates: RepositorySearchCoordinates,
+    request: Omit<RepositorySearchRequest, "revision">,
+  ): Promise<RepositorySearchResponse>;
+}
+
+/** Audit boundary for model-visible repository search. */
+export interface RepositorySearchAuditor {
+  recordSearch(input: {
+    reviewJobId: string;
+    repositoryId: string;
+    revision: "base" | "head";
+    gitSha: string;
+    query: string;
+    returnedPaths: string[];
+    resultCount: number;
+    truncated: boolean;
+    errorMessage?: string;
+    actorId?: string;
+    toolCallId?: string;
+  }): Promise<void>;
 }
 
 /** Raised when a reconciliation job is asked for a nonexistent base. */
@@ -85,6 +109,68 @@ export class AssignedRepositoryReader {
       gitSha,
     });
   }
+
+  /**
+   * Searches bounded text snippets at either assigned revision.
+   *
+   * The model supplies only the query and base/head selector; repository
+   * identity and exact SHA remain bound to the active review job.
+   */
+  async search(
+    auth: ReviewSessionAuth,
+    request: RepositorySearchRequest,
+    auditor: RepositorySearchAuditor,
+    options: { toolCallId?: string } = {},
+  ): Promise<RepositorySearchResponse> {
+    const job = await this.jobs.load(auth);
+    const gitSha = resolveRevisionSha(
+      request.revision,
+      job.baseSha,
+      job.headSha,
+    );
+    try {
+      const response = await this.repositories.search(
+        {
+          repositoryFullName: job.repository.fullName,
+          revision: request.revision,
+          gitSha,
+        },
+        {
+          query: request.query,
+          maxResults: request.maxResults,
+        },
+      );
+      await auditor.recordSearch({
+        reviewJobId: job.reviewJobId,
+        repositoryId: job.repository.id,
+        revision: request.revision,
+        gitSha,
+        query: response.query,
+        returnedPaths: [...new Set(response.results.map(({ path }) => path))],
+        resultCount: response.results.length,
+        truncated: response.truncated,
+        actorId: auth.current?.principalId,
+        toolCallId: options.toolCallId,
+      });
+      return response;
+    } catch (error) {
+      await auditor.recordSearch({
+        reviewJobId: job.reviewJobId,
+        repositoryId: job.repository.id,
+        revision: request.revision,
+        gitSha,
+        query: request.query,
+        returnedPaths: [],
+        resultCount: 0,
+        truncated: true,
+        errorMessage:
+          error instanceof Error ? error.message : "Unknown search failure.",
+        actorId: auth.current?.principalId,
+        toolCallId: options.toolCallId,
+      });
+      throw error;
+    }
+  }
 }
 
 function resolveRevisionSha(
@@ -100,4 +186,3 @@ function resolveRevisionSha(
   }
   return baseSha;
 }
-

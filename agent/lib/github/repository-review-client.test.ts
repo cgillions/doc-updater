@@ -396,6 +396,156 @@ describe("GitHubRepositoryReviewClient", () => {
         error.limit === "file",
     );
   });
+
+  it("searches bounded snippets at the assigned revision and excludes unsafe paths", async () => {
+    const requests: string[] = [];
+    const client = new GitHubRepositoryReviewClient({
+      getAccessToken: async () => "installation-token",
+      fetch: createFixtureFetch(
+        new Map([
+          [
+            `/repos/example/service/git/trees/${HEAD_SHA}?recursive=1`,
+            jsonResponse({
+              truncated: false,
+              tree: [
+                {
+                  path: "src/review-cursor.ts",
+                  type: "blob",
+                  size: 98,
+                },
+                {
+                  path: "agent/lib/database/generated/client.ts",
+                  type: "blob",
+                  size: 98,
+                },
+                { path: "node_modules/pkg/index.ts", type: "blob", size: 98 },
+                { path: "package-lock.json", type: "blob", size: 98 },
+                { path: ".env", type: "blob", size: 98 },
+                { path: "certs/service.key", type: "blob", size: 98 },
+              ],
+            }),
+          ],
+          [
+            `/repos/example/service/contents/src/review-cursor.ts?ref=${HEAD_SHA}`,
+            textResponse(
+              "export const field = 'lastSuccessfullyReviewedSha';\n",
+            ),
+          ],
+        ]),
+        requests,
+      ),
+    });
+
+    const response = await client.search(
+      {
+        repositoryFullName: "example/service",
+        revision: "head",
+        gitSha: HEAD_SHA,
+      },
+      {
+        query: "lastSuccessfullyReviewedSha",
+        maxResults: 10,
+      },
+    );
+
+    assert.deepEqual(response.results, [
+      {
+        path: "src/review-cursor.ts",
+        lineNumber: 1,
+        snippet: "export const field = 'lastSuccessfullyReviewedSha';",
+      },
+    ]);
+    assert.equal(response.searchedFileCount, 1);
+    assert.equal(response.skippedFileCount, 5);
+    assert.equal(response.truncated, false);
+    assert.deepEqual(requests, [
+      `/repos/example/service/git/trees/${HEAD_SHA}?recursive=1`,
+      `/repos/example/service/contents/src/review-cursor.ts?ref=${HEAD_SHA}`,
+    ]);
+  });
+
+  it("redacts obvious secrets from search snippets", async () => {
+    const client = new GitHubRepositoryReviewClient({
+      getAccessToken: async () => "installation-token",
+      fetch: createFixtureFetch(
+        new Map([
+          [
+            `/repos/example/service/git/trees/${HEAD_SHA}?recursive=1`,
+            jsonResponse({
+              truncated: false,
+              tree: [
+                { path: "src/config.ts", type: "blob", size: 64 },
+              ],
+            }),
+          ],
+          [
+            `/repos/example/service/contents/src/config.ts?ref=${HEAD_SHA}`,
+            textResponse('const token = "super-secret-value";\n'),
+          ],
+        ]),
+      ),
+    });
+
+    const response = await client.search(
+      {
+        repositoryFullName: "example/service",
+        revision: "head",
+        gitSha: HEAD_SHA,
+      },
+      {
+        query: "token",
+        maxResults: 10,
+      },
+    );
+
+    assert.equal(response.results[0]?.snippet, "const token = [REDACTED];");
+  });
+
+  it("enforces search file and result bounds", async () => {
+    const client = new GitHubRepositoryReviewClient({
+      getAccessToken: async () => "installation-token",
+      fetch: createFixtureFetch(
+        new Map([
+          [
+            `/repos/example/service/git/trees/${HEAD_SHA}?recursive=1`,
+            jsonResponse({
+              truncated: false,
+              tree: [
+                { path: "src/a.ts", type: "blob", size: 10 },
+                { path: "src/b.ts", type: "blob", size: 10 },
+                { path: "src/c.ts", type: "blob", size: 10 },
+              ],
+            }),
+          ],
+          [
+            `/repos/example/service/contents/src/a.ts?ref=${HEAD_SHA}`,
+            textResponse("needle one\nneedle two\n"),
+          ],
+          [
+            `/repos/example/service/contents/src/b.ts?ref=${HEAD_SHA}`,
+            textResponse("needle three\n"),
+          ],
+        ]),
+      ),
+      maxSearchFiles: 2,
+    });
+
+    const response = await client.search(
+      {
+        repositoryFullName: "example/service",
+        revision: "head",
+        gitSha: HEAD_SHA,
+      },
+      {
+        query: "needle",
+        maxResults: 2,
+      },
+    );
+
+    assert.equal(response.results.length, 2);
+    assert.equal(response.truncated, true);
+    assert.equal(response.skippedFileCount, 1);
+  });
 });
 
 function jsonResponse(body: object, status = 200): Response {

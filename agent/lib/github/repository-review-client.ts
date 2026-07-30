@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import type {
   RepositoryFileContent,
+  RepositorySearchResponse,
   RepositoryReviewScope,
 } from "../domain/repositories/repository-review.ts";
 import type { GitHubAccessTokenProvider } from "./control-plane-client.ts";
@@ -13,6 +14,10 @@ const GITHUB_COMPARE_FILE_LIMIT = 300;
 const DEFAULT_MAX_RECONCILIATION_FILES = 1_000;
 const DEFAULT_MAX_DOCUMENTATION_FILES = 500;
 const DEFAULT_MAX_FILE_BYTES = 512 * 1024;
+const DEFAULT_MAX_SEARCH_FILES = 500;
+const DEFAULT_MAX_SEARCH_FILE_BYTES = 128 * 1024;
+const DEFAULT_MAX_SEARCH_TOTAL_BYTES = 4 * 1024 * 1024;
+const SEARCH_SNIPPET_CONTEXT = 80;
 
 const gitShaSchema = z
   .string()
@@ -49,6 +54,7 @@ const treeSchema = z.object({
     z.object({
       path: z.string().min(1),
       type: z.enum(["blob", "tree", "commit"]),
+      size: z.number().int().nonnegative().optional(),
     }),
   ),
 });
@@ -69,6 +75,13 @@ export interface RepositoryFileCoordinates {
   gitSha: string;
 }
 
+/** Coordinates for bounded search at one assigned repository revision. */
+export interface RepositorySearchCoordinates {
+  repositoryFullName: string;
+  revision: "base" | "head";
+  gitSha: string;
+}
+
 /** Dependencies and evidence limits for repository review reads. */
 export interface GitHubRepositoryReviewClientOptions {
   getAccessToken: GitHubAccessTokenProvider;
@@ -77,6 +90,9 @@ export interface GitHubRepositoryReviewClientOptions {
   maxReconciliationFiles?: number;
   maxDocumentationFiles?: number;
   maxFileBytes?: number;
+  maxSearchFiles?: number;
+  maxSearchFileBytes?: number;
+  maxSearchTotalBytes?: number;
 }
 
 /** Raised when GitHub cannot supply a complete, bounded evidence set. */
@@ -127,6 +143,9 @@ export class GitHubRepositoryReviewClient {
   private readonly maxReconciliationFiles: number;
   private readonly maxDocumentationFiles: number;
   private readonly maxFileBytes: number;
+  private readonly maxSearchFiles: number;
+  private readonly maxSearchFileBytes: number;
+  private readonly maxSearchTotalBytes: number;
 
   constructor(options: GitHubRepositoryReviewClientOptions) {
     this.getAccessToken = options.getAccessToken;
@@ -143,6 +162,18 @@ export class GitHubRepositoryReviewClient {
     this.maxFileBytes = validatePositiveLimit(
       options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES,
       "repository file byte",
+    );
+    this.maxSearchFiles = validatePositiveLimit(
+      options.maxSearchFiles ?? DEFAULT_MAX_SEARCH_FILES,
+      "repository search file",
+    );
+    this.maxSearchFileBytes = validatePositiveLimit(
+      options.maxSearchFileBytes ?? DEFAULT_MAX_SEARCH_FILE_BYTES,
+      "repository search file byte",
+    );
+    this.maxSearchTotalBytes = validatePositiveLimit(
+      options.maxSearchTotalBytes ?? DEFAULT_MAX_SEARCH_TOTAL_BYTES,
+      "repository search total byte",
     );
   }
 
@@ -244,6 +275,89 @@ export class GitHubRepositoryReviewClient {
     };
   }
 
+  /**
+   * Searches safe text-like files at one assigned SHA and returns snippets.
+   *
+   * Full implementation evidence still requires a follow-up `readFile` call
+   * for one of the returned paths.
+   */
+  async search(
+    coordinates: RepositorySearchCoordinates,
+    request: {
+      query: string;
+      maxResults: number;
+    },
+  ): Promise<RepositorySearchResponse> {
+    const [owner, repository] = parseRepositoryFullName(
+      coordinates.repositoryFullName,
+    );
+    gitShaSchema.parse(coordinates.gitSha);
+    const query = normalizeSearchQuery(request.query);
+    const maxResults = Math.min(Math.max(request.maxResults, 1), 20);
+    const token = await this.getToken();
+    const searchFiles = await this.loadSearchableFiles(token, coordinates);
+    const results: RepositorySearchResponse["results"] = [];
+    let searchedFileCount = 0;
+    let skippedFileCount = searchFiles.skippedFileCount;
+    let scannedBytes = 0;
+    let truncated = searchFiles.truncated;
+
+    for (const file of searchFiles.files) {
+      if (
+        results.length >= maxResults ||
+        scannedBytes >= this.maxSearchTotalBytes
+      ) {
+        truncated = true;
+        break;
+      }
+      if (
+        file.size !== undefined &&
+        file.size > this.maxSearchFileBytes
+      ) {
+        skippedFileCount += 1;
+        continue;
+      }
+      const content = await this.readSearchFile(token, {
+        owner,
+        repository,
+        path: file.path,
+        gitSha: coordinates.gitSha,
+      });
+      if (!content) {
+        skippedFileCount += 1;
+        continue;
+      }
+      scannedBytes += content.byteLength;
+      if (scannedBytes > this.maxSearchTotalBytes) {
+        truncated = true;
+        break;
+      }
+      searchedFileCount += 1;
+      results.push(
+        ...findSearchResults(
+          file.path,
+          content.text,
+          query,
+          maxResults - results.length,
+        ),
+      );
+    }
+
+    return {
+      query,
+      revision: coordinates.revision,
+      gitSha: coordinates.gitSha,
+      results,
+      searchedFileCount,
+      skippedFileCount,
+      truncated,
+      guidance:
+        "Search results are discovery snippets only; call " +
+        "read_repository_file on a returned path before recording " +
+        "implementation evidence.",
+    };
+  }
+
   private async loadHeadTree(
     token: string,
     coordinates: RepositoryReviewCoordinates,
@@ -264,6 +378,88 @@ export class GitHubRepositoryReviewClient {
     return parsed.tree
       .filter((entry) => entry.type === "blob")
       .map((entry) => entry.path);
+  }
+
+  private async loadSearchableFiles(
+    token: string,
+    coordinates: RepositorySearchCoordinates,
+  ): Promise<{
+    files: Array<{ path: string; size?: number }>;
+    skippedFileCount: number;
+    truncated: boolean;
+  }> {
+    const [owner, repository] = parseRepositoryFullName(
+      coordinates.repositoryFullName,
+    );
+    const requestPath =
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}` +
+      `/git/trees/${coordinates.gitSha}?recursive=1`;
+    const parsed = treeSchema.parse(await this.getJson(token, requestPath));
+    if (parsed.truncated) {
+      throw new GitHubRepositoryReviewLimitError(
+        "tree",
+        "GitHub truncated the recursive repository tree.",
+      );
+    }
+    const candidates = parsed.tree
+      .filter((entry) => entry.type === "blob")
+      .sort((left, right) => left.path.localeCompare(right.path));
+    const files: Array<{ path: string; size?: number }> = [];
+    let skippedFileCount = 0;
+    let truncated = false;
+    for (const entry of candidates) {
+      if (!isSearchableRepositoryPath(entry.path)) {
+        skippedFileCount += 1;
+        continue;
+      }
+      if (files.length >= this.maxSearchFiles) {
+        skippedFileCount += 1;
+        truncated = true;
+        continue;
+      }
+      files.push({ path: entry.path, size: entry.size });
+    }
+    return { files, skippedFileCount, truncated };
+  }
+
+  private async readSearchFile(
+    token: string,
+    input: {
+      owner: string;
+      repository: string;
+      path: string;
+      gitSha: string;
+    },
+  ): Promise<{ text: string; byteLength: number } | null> {
+    const encodedPath = input.path
+      .split("/")
+      .map(encodeURIComponent)
+      .join("/");
+    const requestPath =
+      `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}` +
+      `/contents/${encodedPath}?ref=${input.gitSha}`;
+    const response = await this.request(token, requestPath, {
+      Accept: "application/vnd.github.raw+json",
+    });
+    const declaredLength = Number(response.headers.get("content-length"));
+    if (
+      Number.isFinite(declaredLength) &&
+      declaredLength > this.maxSearchFileBytes
+    ) {
+      return null;
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > this.maxSearchFileBytes) {
+      return null;
+    }
+    try {
+      return {
+        text: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+        byteLength: bytes.byteLength,
+      };
+    } catch {
+      return null;
+    }
   }
 
   private async loadComparison(
@@ -419,6 +615,145 @@ function isDocumentationPath(path: string): boolean {
     /\.(?:md|mdx|adoc|rst)$/i.test(filename) ||
     (inDocumentationDirectory && /\.txt$/i.test(filename))
   );
+}
+
+function isSearchableRepositoryPath(path: string): boolean {
+  if (!isSafeRepositoryPathShape(path)) {
+    return false;
+  }
+  const lowerPath = path.toLowerCase();
+  const segments = lowerPath.split("/");
+  if (
+    segments.some((segment) =>
+      [
+        ".git",
+        "node_modules",
+        ".next",
+        "dist",
+        "build",
+        "coverage",
+      ].includes(segment)
+    )
+  ) {
+    return false;
+  }
+  if (lowerPath.startsWith("agent/lib/database/generated/")) {
+    return false;
+  }
+  const filename = segments.at(-1) ?? "";
+  if (
+    [
+      "package-lock.json",
+      "npm-shrinkwrap.json",
+      "yarn.lock",
+      "pnpm-lock.yaml",
+      "bun.lockb",
+    ].includes(filename)
+  ) {
+    return false;
+  }
+  if (
+    filename.startsWith(".env") ||
+    /(?:^|\.)(?:pem|key|crt|cer|p12|pfx|jks|keystore|der|gpg|asc)$/i.test(
+      filename,
+    ) ||
+    /^(?:id_rsa|id_dsa|id_ecdsa|id_ed25519)$/i.test(filename)
+  ) {
+    return false;
+  }
+  return isSearchableTextPath(lowerPath);
+}
+
+function isSafeRepositoryPathShape(path: string): boolean {
+  return (
+    path.length > 0 &&
+    !path.startsWith("/") &&
+    !path.endsWith("/") &&
+    !path.includes("\\") &&
+    !path
+      .split("/")
+      .some((segment) => segment === "" || segment === "." || segment === "..")
+  );
+}
+
+function isSearchableTextPath(lowerPath: string): boolean {
+  const filename = lowerPath.split("/").at(-1) ?? "";
+  if (
+    [
+      "dockerfile",
+      "makefile",
+      "justfile",
+      "procfile",
+      "agents.md",
+      "claude.md",
+    ].includes(filename)
+  ) {
+    return true;
+  }
+  return /\.(?:adoc|css|csv|env\.example|graphql|h|hpp|html|java|js|json|jsx|md|mdx|mjs|cjs|prisma|properties|py|rb|rs|rst|scss|sh|sql|toml|ts|tsx|txt|xml|yaml|yml)$/i.test(
+    lowerPath,
+  );
+}
+
+function normalizeSearchQuery(query: string): string {
+  const normalized = query.trim().replace(/\s+/g, " ");
+  if (normalized.length < 2 || normalized.length > 120) {
+    throw new Error("Repository search query must be 2 to 120 characters.");
+  }
+  return normalized;
+}
+
+function findSearchResults(
+  path: string,
+  content: string,
+  query: string,
+  remaining: number,
+): RepositorySearchResponse["results"] {
+  const results: RepositorySearchResponse["results"] = [];
+  const lowerQuery = query.toLowerCase();
+  const lines = content.split(/\r?\n/);
+  for (let index = 0; index < lines.length && results.length < remaining; index += 1) {
+    const line = lines[index]!;
+    const matchIndex = line.toLowerCase().indexOf(lowerQuery);
+    if (matchIndex < 0) {
+      continue;
+    }
+    results.push({
+      path,
+      lineNumber: index + 1,
+      snippet: redactObviousSecrets(
+        sliceSnippet(line, matchIndex, query.length),
+      ),
+    });
+  }
+  return results;
+}
+
+function sliceSnippet(
+  line: string,
+  matchIndex: number,
+  matchLength: number,
+): string {
+  const start = Math.max(0, matchIndex - SEARCH_SNIPPET_CONTEXT);
+  const end = Math.min(
+    line.length,
+    matchIndex + matchLength + SEARCH_SNIPPET_CONTEXT,
+  );
+  const prefix = start > 0 ? "..." : "";
+  const suffix = end < line.length ? "..." : "";
+  return `${prefix}${line.slice(start, end)}${suffix}`.trim();
+}
+
+function redactObviousSecrets(snippet: string): string {
+  return snippet
+    .replace(
+      /\b(password|passwd|pwd|token|secret|api[_-]?key|private[_-]?key)\b(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)/gi,
+      "$1$2[REDACTED]",
+    )
+    .replace(
+      /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+      "[REDACTED PRIVATE KEY]",
+    );
 }
 
 function validateApiBaseUrl(value: string | undefined): URL {

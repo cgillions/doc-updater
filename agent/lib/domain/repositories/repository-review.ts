@@ -45,6 +45,32 @@ export const repositoryFileRequestSchema = z.object({
   revision: z.enum(["base", "head"]),
 });
 
+/** Model input for bounded text search within the assigned repository. */
+export const repositorySearchRequestSchema = z.object({
+  query: z.string().trim().min(2).max(120),
+  revision: z.enum(["base", "head"]),
+  maxResults: z.number().int().min(1).max(20).default(10),
+});
+
+/** One bounded repository search result. */
+export const repositorySearchResultSchema = z.object({
+  path: z.string().min(1),
+  lineNumber: z.number().int().positive(),
+  snippet: z.string().min(1).max(500),
+});
+
+/** Bounded repository search output visible to the model. */
+export const repositorySearchResponseSchema = z.object({
+  query: z.string().min(1),
+  revision: z.enum(["base", "head"]),
+  gitSha: gitShaSchema,
+  results: z.array(repositorySearchResultSchema).max(20),
+  searchedFileCount: z.number().int().nonnegative(),
+  skippedFileCount: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+  guidance: z.string().min(1),
+});
+
 export type RepositoryReviewScope = z.infer<
   typeof repositoryReviewScopeSchema
 >;
@@ -53,4 +79,10 @@ export type RepositoryFileContent = z.infer<
 >;
 export type RepositoryFileRequest = z.infer<
   typeof repositoryFileRequestSchema
+>;
+export type RepositorySearchRequest = z.infer<
+  typeof repositorySearchRequestSchema
+>;
+export type RepositorySearchResponse = z.infer<
+  typeof repositorySearchResponseSchema
 >;

@@ -42,6 +42,9 @@ describe("AssignedRepositoryReader", () => {
         readFile: async () => {
           throw new Error("not used");
         },
+        search: async () => {
+          throw new Error("not used");
+        },
       },
     );
 
@@ -77,6 +80,9 @@ describe("AssignedRepositoryReader", () => {
             contentSha256: "c".repeat(64),
             content: "",
           };
+        },
+        search: async () => {
+          throw new Error("not used");
         },
       },
     );
@@ -122,6 +128,9 @@ describe("AssignedRepositoryReader", () => {
         readFile: async () => {
           throw new Error("must not read");
         },
+        search: async () => {
+          throw new Error("must not search");
+        },
       },
     );
 
@@ -129,6 +138,147 @@ describe("AssignedRepositoryReader", () => {
       reader.readFile(AUTH, { path: "README.md", revision: "base" }),
       BaseRevisionUnavailableError,
     );
+  });
+
+  it("binds search to the selected assigned revision and audits returned paths", async () => {
+    const searchCalls: unknown[] = [];
+    const auditCalls: unknown[] = [];
+    const reader = new AssignedRepositoryReader(
+      {
+        loadActive: async () => incrementalContext(),
+      },
+      {
+        loadScope: async () => {
+          throw new Error("not used");
+        },
+        readFile: async () => {
+          throw new Error("not used");
+        },
+        search: async (coordinates, request) => {
+          searchCalls.push({ coordinates, request });
+          return {
+            query: request.query,
+            revision: coordinates.revision,
+            gitSha: coordinates.gitSha,
+            results: [
+              {
+                path: "agent/lib/database/review-completion-store.ts",
+                lineNumber: 213,
+                snippet: "lastSuccessfullyReviewedSha: headSha,",
+              },
+              {
+                path: "agent/lib/database/review-completion-store.ts",
+                lineNumber: 217,
+                snippet: "lastSuccessfullyReviewedSha: headSha,",
+              },
+            ],
+            searchedFileCount: 4,
+            skippedFileCount: 2,
+            truncated: false,
+            guidance:
+              "Search results are discovery snippets only; call read_repository_file.",
+          };
+        },
+      },
+    );
+
+    const result = await reader.search(
+      { ...AUTH, current: { ...AUTH.initiator, principalId: "U123" } },
+      {
+        query: "lastSuccessfullyReviewedSha",
+        revision: "head",
+        maxResults: 5,
+      },
+      {
+        recordSearch: async (input) => {
+          auditCalls.push(input);
+        },
+      },
+      { toolCallId: "call-123" },
+    );
+
+    assert.deepEqual(searchCalls, [
+      {
+        coordinates: {
+          repositoryFullName: "example/service",
+          revision: "head",
+          gitSha: HEAD_SHA,
+        },
+        request: {
+          query: "lastSuccessfullyReviewedSha",
+          maxResults: 5,
+        },
+      },
+    ]);
+    assert.deepEqual(auditCalls, [
+      {
+        reviewJobId: REVIEW_JOB_ID,
+        repositoryId: "123e4567-e89b-42d3-a456-426614174001",
+        revision: "head",
+        gitSha: HEAD_SHA,
+        query: "lastSuccessfullyReviewedSha",
+        returnedPaths: ["agent/lib/database/review-completion-store.ts"],
+        resultCount: 2,
+        truncated: false,
+        actorId: "U123",
+        toolCallId: "call-123",
+      },
+    ]);
+    assert.equal(result.results.length, 2);
+  });
+
+  it("audits failed repository search attempts before rethrowing", async () => {
+    const auditCalls: unknown[] = [];
+    const reader = new AssignedRepositoryReader(
+      {
+        loadActive: async () => incrementalContext(),
+      },
+      {
+        loadScope: async () => {
+          throw new Error("not used");
+        },
+        readFile: async () => {
+          throw new Error("not used");
+        },
+        search: async () => {
+          throw new Error("GitHub truncated the recursive repository tree.");
+        },
+      },
+    );
+
+    await assert.rejects(
+      reader.search(
+        AUTH,
+        {
+          query: "lastSuccessfullyReviewedSha",
+          revision: "head",
+          maxResults: 5,
+        },
+        {
+          recordSearch: async (input) => {
+            auditCalls.push(input);
+          },
+        },
+        { toolCallId: "call-failed" },
+      ),
+      /GitHub truncated/,
+    );
+
+    assert.deepEqual(auditCalls, [
+      {
+        reviewJobId: REVIEW_JOB_ID,
+        repositoryId: "123e4567-e89b-42d3-a456-426614174001",
+        revision: "head",
+        gitSha: HEAD_SHA,
+        query: "lastSuccessfullyReviewedSha",
+        returnedPaths: [],
+        resultCount: 0,
+        truncated: true,
+        errorMessage: "GitHub truncated the recursive repository tree.",
+        actorId: undefined,
+        toolCallId: "call-failed",
+      },
+    ]);
   });
 });
 
