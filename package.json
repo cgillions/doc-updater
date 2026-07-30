@@ -13,6 +13,7 @@
     "dev": "eve dev",
     "postinstall": "prisma generate",
     "start": "eve start",
+    "vercel-build": "eve build && prisma migrate deploy",
     "test": "node --test",
     "typecheck": "tsc"
   },
