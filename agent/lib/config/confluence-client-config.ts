@@ -1,5 +1,6 @@
-/** Runtime credentials for the read-only Confluence REST client. */
+/** Runtime credentials for the Confluence REST clients. */
 export interface ConfluenceClientConfig {
+  apiEmail: string;
   apiToken: string;
   maxPageBytes: number;
 }
@@ -11,6 +12,7 @@ export function loadConfluenceClientConfig(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): ConfluenceClientConfig {
   return {
+    apiEmail: readRequired(environment, "CONFLUENCE_API_EMAIL"),
     apiToken: readRequired(environment, "CONFLUENCE_API_TOKEN"),
     maxPageBytes: readPositiveInteger(
       environment.CONFLUENCE_MAX_PAGE_BYTES,

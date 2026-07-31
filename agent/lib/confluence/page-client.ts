@@ -36,6 +36,7 @@ const tenantSchema = z.object({
 });
 
 export interface ConfluencePageClientOptions {
+  apiEmail: string;
   apiToken: string;
   fetch?: typeof fetch;
   maxPageBytes?: number;
@@ -69,10 +70,16 @@ export class ConfluencePageClient {
   private readonly maxPageBytes: number;
 
   constructor(options: ConfluencePageClientOptions) {
+    if (!options.apiEmail.trim()) {
+      throw new Error("A Confluence API email is required.");
+    }
     if (!options.apiToken.trim()) {
       throw new Error("A Confluence API token is required.");
     }
-    this.authorization = `Bearer ${options.apiToken}`;
+    this.authorization = buildBasicAuthorization(
+      options.apiEmail,
+      options.apiToken,
+    );
     this.fetch = options.fetch ?? globalThis.fetch;
     this.maxPageBytes = options.maxPageBytes ?? 1_000_000;
     if (
@@ -214,6 +221,10 @@ export class ConfluencePageClient {
     }
     return tenantSchema.parse(JSON.parse(responseBody)).cloudId;
   }
+}
+
+function buildBasicAuthorization(apiEmail: string, apiToken: string): string {
+  return `Basic ${Buffer.from(`${apiEmail}:${apiToken}`).toString("base64")}`;
 }
 
 function validateTarget(target: ConfluencePageTarget): void {

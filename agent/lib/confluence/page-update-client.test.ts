@@ -7,16 +7,25 @@ import {
 } from "./page-update-client.ts";
 
 const CLOUD_ID = "123e4567-e89b-42d3-a456-426614174000";
+const BASIC_AUTH = "Basic c2VydmljZUBleGFtcGxlLmNvbTpzZWNyZXQ=";
 
 describe("ConfluencePageUpdateClient", () => {
   it("publishes the exact replacement and returns page and history URLs", async () => {
-    const requests: Array<{ url: string; method: string; body: unknown }> = [];
+    const requests: Array<{
+      url: string;
+      method: string;
+      authorization: string | null;
+      body: unknown;
+    }> = [];
     const client = new ConfluencePageUpdateClient({
+      apiEmail: "service@example.com",
       apiToken: "secret",
       fetch: async (input, init) => {
+        const headers = new Headers(init?.headers);
         requests.push({
           url: String(input),
           method: init?.method ?? "GET",
+          authorization: headers.get("authorization"),
           body: init?.body ? JSON.parse(String(init.body)) : undefined,
         });
         if (String(input).endsWith("/_edge/tenant_info")) {
@@ -51,6 +60,7 @@ describe("ConfluencePageUpdateClient", () => {
         `https://api.atlassian.com/ex/confluence/${CLOUD_ID}` +
         "/wiki/api/v2/pages/12345",
       method: "PUT",
+      authorization: BASIC_AUTH,
       body: {
         id: "12345",
         status: "current",
@@ -65,6 +75,7 @@ describe("ConfluencePageUpdateClient", () => {
 
   it("rejects unexpected responses and reports version conflicts", async () => {
     const wrongPage = new ConfluencePageUpdateClient({
+      apiEmail: "service@example.com",
       apiToken: "secret",
       fetch: tenantThen(() =>
         Response.json({
@@ -78,6 +89,7 @@ describe("ConfluencePageUpdateClient", () => {
     await assert.rejects(wrongPage.updatePage(request()), /expected page/);
 
     const conflict = new ConfluencePageUpdateClient({
+      apiEmail: "service@example.com",
       apiToken: "secret",
       fetch: tenantThen(() => new Response(null, { status: 409 })),
     });

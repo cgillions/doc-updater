@@ -13,6 +13,7 @@ const updateResponseSchema = z.object({
 });
 
 export interface ConfluencePageUpdateClientOptions {
+  apiEmail: string;
   apiToken: string;
   fetch?: typeof fetch;
 }
@@ -34,10 +35,16 @@ export class ConfluencePageUpdateClient implements ConfluencePageUpdater {
   private readonly fetch: typeof fetch;
 
   constructor(options: ConfluencePageUpdateClientOptions) {
+    if (!options.apiEmail.trim()) {
+      throw new Error("A Confluence API email is required.");
+    }
     if (!options.apiToken.trim()) {
       throw new Error("A Confluence API token is required.");
     }
-    this.authorization = `Bearer ${options.apiToken}`;
+    this.authorization = buildBasicAuthorization(
+      options.apiEmail,
+      options.apiToken,
+    );
     this.fetch = options.fetch ?? globalThis.fetch;
   }
 
@@ -123,6 +130,10 @@ export class ConfluencePageUpdateClient implements ConfluencePageUpdater {
 
 export function createConfluencePageUpdateClient(): ConfluencePageUpdateClient {
   return new ConfluencePageUpdateClient(loadConfluenceClientConfig());
+}
+
+function buildBasicAuthorization(apiEmail: string, apiToken: string): string {
+  return `Basic ${Buffer.from(`${apiEmail}:${apiToken}`).toString("base64")}`;
 }
 
 function buildPageUrl(siteId: string, webui: string): string {

@@ -10,11 +10,13 @@ import {
 const STORAGE =
   '<h1>Orders</h1><p>Use <ac:structured-macro ac:name="code" /></p>';
 const CLOUD_ID = "123e4567-e89b-42d3-a456-426614174000";
+const BASIC_AUTH = "Basic c2VydmljZUBleGFtcGxlLmNvbTpzZWNyZXQ=";
 
 describe("ConfluencePageClient", () => {
   it("reads and hashes native storage content at an exact page identity", async () => {
     const requests: Array<{ url: string; authorization: string | null }> = [];
     const client = new ConfluencePageClient({
+      apiEmail: "service@example.com",
       apiToken: "secret",
       fetch: async (input, init) => {
         const headers = new Headers(init?.headers);
@@ -70,7 +72,7 @@ describe("ConfluencePageClient", () => {
         url:
           `https://api.atlassian.com/ex/confluence/${CLOUD_ID}` +
           "/wiki/api/v2/pages/12345?body-format=storage",
-        authorization: "Bearer secret",
+        authorization: BASIC_AUTH,
       },
     ]);
   });
@@ -78,6 +80,7 @@ describe("ConfluencePageClient", () => {
   it("fails closed for restricted pages and invalid response identities", async () => {
     let restrictedRequests = 0;
     const restricted = new ConfluencePageClient({
+      apiEmail: "service@example.com",
       apiToken: "secret",
       fetch: async () => {
         restrictedRequests += 1;
@@ -98,6 +101,7 @@ describe("ConfluencePageClient", () => {
 
     let mismatchedRequests = 0;
     const mismatched = new ConfluencePageClient({
+      apiEmail: "service@example.com",
       apiToken: "secret",
       fetch: async () => {
         mismatchedRequests += 1;
@@ -130,6 +134,7 @@ describe("ConfluencePageClient", () => {
   it("uses Confluence draft metadata as the source of truth without reading a body", async () => {
     const requests: string[] = [];
     const client = new ConfluencePageClient({
+      apiEmail: "service@example.com",
       apiToken: "secret",
       fetch: async (input) => {
         requests.push(String(input));
@@ -160,6 +165,7 @@ describe("ConfluencePageClient", () => {
   it("reports no draft when the explicit draft lookup returns 404", async () => {
     let requests = 0;
     const client = new ConfluencePageClient({
+      apiEmail: "service@example.com",
       apiToken: "secret",
       fetch: async () => {
         requests += 1;
@@ -181,6 +187,7 @@ describe("ConfluencePageClient", () => {
   it("resolves each trusted site cloud ID once", async () => {
     let tenantRequests = 0;
     const client = new ConfluencePageClient({
+      apiEmail: "service@example.com",
       apiToken: "secret",
       fetch: async (input) => {
         if (String(input).endsWith("/_edge/tenant_info")) {

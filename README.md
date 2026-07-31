@@ -61,6 +61,7 @@ limits can be tuned with:
 - `GITHUB_CONNECTOR_ID` (default `github/docia-gh`)
 - `ROADIE_API_TOKEN` (required service-account token)
 - `ROADIE_API_BASE_URL` (default `https://api.roadie.so/api/catalog/`)
+- `CONFLUENCE_API_EMAIL` (required service-account Atlassian email)
 - `CONFLUENCE_API_TOKEN` (required scoped service-account API token)
 - `CONFLUENCE_MAX_PAGE_BYTES` (default `1000000`)
 - `ROADIE_REFRESH_LIMIT` (default `25`, maximum `100`)
@@ -78,17 +79,19 @@ For local development, start PostgreSQL with Docker Compose:
 docker compose up -d
 export DATABASE_URL=postgresql://doc_updater:doc_updater@localhost:5432/doc_updater
 export ROADIE_API_TOKEN=replace-with-roadie-service-account-token
+export CONFLUENCE_API_EMAIL=replace-with-service-account-email
 export CONFLUENCE_API_TOKEN=replace-with-scoped-service-account-api-token
 npm run db:migrate:deploy
 ```
 
 Keep API tokens in local or deployed environment configuration; do not commit
-them. Confluence uses the scoped service-account token through Atlassian's API
-gateway. Cloud IDs are resolved from the trusted Roadie site hosts. The service
-account needs permission to view the declared sandbox pages; the agent has no
-Confluence write tool. Slack routes and Confluence scope are read from the
-Roadie entities: the owning Group supplies `slack.com/channel-id`, and
-Component, System, and Group `metadata.links` supply Confluence pages or roots.
+them. Confluence authenticates API-token calls with the service-account email
+and token through Atlassian's API gateway. Cloud IDs are resolved from the
+trusted Roadie site hosts. The service account needs permission to view and
+update the declared sandbox pages; the agent has no Confluence create, delete,
+move, permission, or space-management tool. Slack routes and Confluence scope
+are read from the Roadie entities: the owning Group supplies `slack.com/channel-id`, 
+and Component, System, and Group `metadata.links` supply Confluence pages or roots.
 Confluence exclusions use one organization-prefixed annotation ending in
 `/confluence-exclude-page-ids`. Run `npx eve link` once to link the local
 checkout to the deployed Vercel project and pull the OIDC environment used by
@@ -159,8 +162,11 @@ update.
 ## Confluence API permissions
 
 Create a Confluence service account and an API token with the granular
-`read:page:confluence` and `write:page:confluence` scopes. Grant the service
-account permission to view and update each declared sandbox page and its space.
+`read:page:confluence` and `write:page:confluence` scopes. Configure both
+`CONFLUENCE_API_EMAIL` and `CONFLUENCE_API_TOKEN`; direct Confluence REST calls
+authenticate with a Basic header built from `<email>:<api_token>`. Grant the
+service account permission to view and update each declared sandbox page and
+its space.
 The application only publishes the exact approved replacement to an existing
 exact-linked page. It has no page-create, delete, move, permission, or
 space-management path. After a successful update, Slack links to Confluence
