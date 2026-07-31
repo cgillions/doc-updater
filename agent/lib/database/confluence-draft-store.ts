@@ -9,7 +9,10 @@ import {
   type ConfluenceDraftRecord,
 } from "../domain/reviews/review-records.ts";
 import { ReviewRecordConflictError } from "../domain/reviews/errors.ts";
-import { loadReviewRecordJob } from "./review-record-helpers.ts";
+import {
+  loadReviewRecordJob,
+  type ReviewRecordJob,
+} from "./review-record-helpers.ts";
 
 /** Immutable Confluence proposal data loaded from trusted persistence. */
 export interface ConfluenceDraftProposal {
@@ -18,6 +21,8 @@ export interface ConfluenceDraftProposal {
   reviewJobId: string;
   digest: string;
   implementationSha: string;
+  pageTitle?: string;
+  pageUrl?: string;
   target: {
     siteId: string;
     pageId: string;
@@ -122,12 +127,19 @@ export class ConfluenceDraftStore implements ConfluenceDraftArtifactStore {
         return null;
       }
 
+      const provenance = exactConfluenceProvenance(
+        job.documentationScope,
+        parsed.target.siteId,
+        parsed.target.pageId,
+      );
       return {
         id: proposal.id,
         repositoryId: job.repositoryId,
         reviewJobId: job.id,
         digest: proposal.digest,
         implementationSha: job.headSha,
+        pageTitle: provenance?.title,
+        pageUrl: provenance?.url,
         target: {
           siteId: parsed.target.siteId,
           pageId: parsed.target.pageId,
@@ -258,6 +270,17 @@ export class ConfluenceDraftStore implements ConfluenceDraftArtifactStore {
     });
     return requireMatchingBlockedRecord(audit.details, record);
   }
+}
+
+function exactConfluenceProvenance(
+  scope: ReviewRecordJob["documentationScope"],
+  siteId: string,
+  pageId: string,
+): { title?: string; url: string } | undefined {
+  const target = scope.find(
+    (candidate) => candidate.siteId === siteId && candidate.pageId === pageId,
+  );
+  return target?.declarations.find(({ kind }) => kind === "exact")?.provenance;
 }
 
 function isExactConfluenceTarget(
