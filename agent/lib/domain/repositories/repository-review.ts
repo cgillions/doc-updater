@@ -39,6 +39,19 @@ export const repositoryFileContentSchema = z.object({
   content: z.string(),
 });
 
+/** Controlled result when a safe path is absent at the assigned revision. */
+export const repositoryFileNotFoundSchema = z.object({
+  status: z.literal("not-found"),
+  path: z.string().min(1),
+  revision: z.enum(["base", "head"]),
+  guidance: z.string().min(1),
+});
+
+export const repositoryFileReadResultSchema = z.union([
+  repositoryFileContentSchema,
+  repositoryFileNotFoundSchema,
+]);
+
 /** Model input for a file read within the assigned repository and SHAs. */
 export const repositoryFileRequestSchema = z.object({
   path: z.string().min(1).max(1_024),
@@ -76,6 +89,9 @@ export type RepositoryReviewScope = z.infer<
 >;
 export type RepositoryFileContent = z.infer<
   typeof repositoryFileContentSchema
+>;
+export type RepositoryFileReadResult = z.infer<
+  typeof repositoryFileReadResultSchema
 >;
 export type RepositoryFileRequest = z.infer<
   typeof repositoryFileRequestSchema

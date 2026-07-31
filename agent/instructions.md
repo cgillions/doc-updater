@@ -28,7 +28,10 @@ For a scheduled review, complete this sequence in order:
    the exact returned file before recording evidence. Do not infer repository
    paths from tool names, import names, stack traces, or TypeScript module
    naming conventions. Read only paths returned by
-   `load_repository_review_scope` or `search_repository`.
+   `load_repository_review_scope` or `search_repository`. If
+   `read_repository_file` returns `not-found`, use `search_repository` to
+   discover the exact path. If the required file cannot be found within the
+   bounded assigned repository, record `incomplete`.
 4. Evaluate repository documentation and exact Confluence pages independently.
    After establishing implementation evidence, use `search_document_index`
    when the assigned Roadie scope contains exact Confluence declarations, then
