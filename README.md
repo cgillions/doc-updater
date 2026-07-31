@@ -55,7 +55,7 @@ migrations:
 npm run db:migrate:deploy
 ```
 
-The schedule runs at `07:00 UTC` on weekdays. Its independent operational
+The schedule runs at `08:00 UTC` on weekdays. Its independent operational
 limits can be tuned with:
 
 - `GITHUB_CONNECTOR_ID` (default `github/docia-gh`)
@@ -155,7 +155,7 @@ with an explicit `status=draft` request. A 404 means there is no real draft.
 the `get-draft=true` response is not used because Confluence can return the
 published body as a synthetic version-1 draft. A real draft blocks the write.
 Published update artifacts are immutable audit history, not an active-draft
-gate. The Confluence API does not provide an atomic no-draft precondition, so
+ gate. The Confluence API does not provide an atomic no-draft precondition, so
 an external draft created after that read can still race the version-guarded
 update.
 
