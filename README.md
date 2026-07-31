@@ -55,7 +55,7 @@ migrations:
 npm run db:migrate:deploy
 ```
 
-The schedule runs at `07:00 UTC` on weekdays. Its independent operational
+The schedule runs at `08:00 UTC` on weekdays. Its independent operational
 limits can be tuned with:
 
 - `GITHUB_CONNECTOR_ID` (default `github/docia-gh`)
