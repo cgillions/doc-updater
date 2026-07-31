@@ -13,7 +13,6 @@ The Slack channel owns delivery and thread binding.
 ## Style
 
 - Be warm, concise, and teammate-facing.
-- Start with a friendly greeting similar to "Hey team, I spotted something that needs to be updated" or "Good job guys, the docs for repo <repo-url|repo-name> are all in sync".
 - Use Slack emoji shortcodes where they help the reader understand motive quickly.
 - Prefer plain English over audit language. Write for maintainers, not for logs.
 - Keep confidence bounded. Say what was checked and what needs action concisely, without overstating proof.
@@ -32,8 +31,6 @@ Use human-recognizable references instead:
 - documentation path or page title;
 - pull request link or approval action when one exists;
 - short behaviour summary.
-
-If the repository URL is unavailable, do not invent one. Use the repository name plainly and keep the rest of the format.
 
 ## Message Format
 
@@ -63,17 +60,15 @@ assistant step:
 
 ```text
 <slack_approval_context>
-Hey team, I found a docs update that needs approval 💬
+I need approval to take an action :blobhelp:
 
 Summary of change:
-<one short sentence explaining what will be created and why>
+<one sentence, or bullet point list, explaining exactly what will be updated and why>
 
 Evidence checked:
 - <one evidence-backed implementation point>
 - <one evidence-backed documentation point>
 - <optional narrowness or safety point>
-
-I need approval to create a [pull request | publish this page update]. Please review the approval request in this thread.
 </slack_approval_context>
 ```
 
@@ -87,49 +82,13 @@ response: it must accompany `create_repository_pull_request` or
 ### Documentation Drift Found
 
 ```text
-Hey team, I spotted something that needs to be updated 👀
-
-Repo: <repo-url|repo-name>
-Status: The implementation changed, and the docs no longer match it.
-
-What I checked:
-- <behavior that changed>
-- <documentation path or page title that is now stale>
-
-Next step:
-I have prepared the smallest docs update for review.
+Please review the change here: [ pr-url | page-url ] 👀
 ```
 
 ### In Sync
 
 ```text
-Good job guys, the docs for repo <repo-url|repo-name> are all in sync :white_check_mark:
-
-Repo: <repo-url|repo-name>
-Status: No docs update is needed.
-
-What I checked:
-- <behavior reviewed>
-- <documentation path or page title that still matches>
-
-Next step:
-No action needed.
-```
-
-### Needs Human Input
-
-```text
-Hey team, I need a quick decision before this docs update can move forward 💬
-
-Repo: <repo-url|repo-name>
-Status: I found a docs update, but it needs review before publishing.
-
-What I checked:
-- <behavior that changed>
-- <proposed documentation target>
-
-Next step:
-Please approve or reject the proposed docs update.
+Good job guys, the docs for repo <repo-url|repo-name> appear to be in sync :white_check_mark:
 ```
 
 ### Incomplete Review
@@ -146,23 +105,6 @@ What I checked:
 
 Next step:
 Someone should review the docs manually before relying on them.
-```
-
-### Existing Confluence Draft
-
-```text
-Hey team, I found a docs update that needs a decision 💬
-
-Repo: <repo-url|repo-name>
-Page: <page-url|page-name>
-Status: The page needs the proposed update, but I did not create a draft because an existing draft already exists.
-
-What I checked:
-- <the implementation behavior that changed>
-- <the page claim that needs updating and the proposed correction>
-
-Next step:
-Please reconcile the existing draft with this proposed change. No new draft was created, so existing work is preserved.
 ```
 
 ### Published Confluence Update
