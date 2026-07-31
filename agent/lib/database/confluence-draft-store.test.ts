@@ -8,6 +8,7 @@ import { Pool } from "pg";
 import { ChangeProposalStore } from "./change-proposal-store.ts";
 import { createDatabaseClient, type DatabaseClient } from "./client.ts";
 import { ConfluenceDraftStore } from "./confluence-draft-store.ts";
+import { ConfluencePageUpdateStore } from "./confluence-page-update-store.ts";
 import { EvidenceClaimStore } from "./evidence-claim-store.ts";
 import { ReviewRecordConflictError } from "../domain/reviews/errors.ts";
 
@@ -19,6 +20,7 @@ describe("ConfluenceDraftStore with PostgreSQL", () => {
   let evidenceStore: EvidenceClaimStore;
   let proposalStore: ChangeProposalStore;
   let draftStore: ConfluenceDraftStore;
+  let pageUpdateStore: ConfluencePageUpdateStore;
 
   before(async () => {
     configureTestcontainers();
@@ -36,6 +38,7 @@ describe("ConfluenceDraftStore with PostgreSQL", () => {
       "../../../prisma/migrations/202608010001_behavior_comparisons/migration.sql",
       "../../../prisma/migrations/202608020001_confluence_draft_artifacts/migration.sql",
       "../../../prisma/migrations/202608030001_confluence_draft_artifact_history/migration.sql",
+      "../../../prisma/migrations/202608040001_confluence_page_update_artifacts/migration.sql",
     ]) {
       const migration = await readFile(
         new URL(migrationPath, import.meta.url),
@@ -49,6 +52,7 @@ describe("ConfluenceDraftStore with PostgreSQL", () => {
     evidenceStore = new EvidenceClaimStore(database);
     proposalStore = new ChangeProposalStore(database);
     draftStore = new ConfluenceDraftStore(database);
+    pageUpdateStore = new ConfluencePageUpdateStore(database);
   });
 
   after(async () => {
@@ -59,6 +63,7 @@ describe("ConfluenceDraftStore with PostgreSQL", () => {
   beforeEach(async () => {
     await database.$executeRawUnsafe(`
       TRUNCATE TABLE
+        confluence_page_update_artifacts,
         confluence_draft_artifacts,
         review_job_confluence_candidates,
         confluence_page_snapshots,
@@ -72,6 +77,51 @@ describe("ConfluenceDraftStore with PostgreSQL", () => {
         repository_registry
       CASCADE
     `);
+  });
+
+  it("records the published version and human review links", async () => {
+    const job = await createLeasedJob(database);
+    const proposal = await createConfluenceProposal(
+      evidenceStore,
+      proposalStore,
+      job.id,
+    );
+    const stored = await pageUpdateStore.loadProposal(job.id, proposal.digest);
+
+    const record = await pageUpdateStore.recordPublished({
+      proposal: stored!,
+      pageId: "12345",
+      publishedVersion: 8,
+      pageUrl:
+        "https://example.atlassian.net/wiki/spaces/ORD/pages/12345/Orders",
+      historyUrl:
+        "https://example.atlassian.net/wiki/spaces/ORD/history/12345/Orders",
+      actorId: "U12345678",
+      sessionId: "session-123",
+      toolCallId: "call-123",
+    });
+
+    assert.deepEqual(record, {
+      proposalDigest: proposal.digest,
+      pageId: "12345",
+      publishedVersion: 8,
+      pageUrl:
+        "https://example.atlassian.net/wiki/spaces/ORD/pages/12345/Orders",
+      historyUrl:
+        "https://example.atlassian.net/wiki/spaces/ORD/history/12345/Orders",
+      status: "published",
+    });
+    assert.equal(await database.confluencePageUpdateArtifact.count(), 1);
+    const audit = await database.auditEvent.findFirstOrThrow({
+      where: { eventType: "confluence_page_update_published" },
+    });
+    assert.deepEqual(audit.details, {
+      proposalId: proposal.id,
+      approvalOutcome: "approved",
+      sessionId: "session-123",
+      toolCallId: "call-123",
+      ...record,
+    });
   });
 
   it("loads an exact-page proposal and records immutable draft history", async () => {

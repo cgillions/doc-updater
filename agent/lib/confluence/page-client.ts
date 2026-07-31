@@ -150,7 +150,7 @@ export class ConfluencePageClient {
       `/ex/confluence/${cloudId}/wiki/api/v2/pages/${target.pageId}`,
       "https://api.atlassian.com",
     );
-    url.searchParams.set("get-draft", "true");
+    url.searchParams.set("status", "draft");
     const response = await this.fetch(url, {
       headers: {
         Accept: "application/json",
@@ -158,6 +158,9 @@ export class ConfluencePageClient {
       },
       redirect: "error",
     });
+    if (response.status === 404) {
+      return null;
+    }
     if (!response.ok) {
       throw new ConfluencePageRequestError(response.status);
     }
@@ -175,9 +178,6 @@ export class ConfluencePageClient {
     const page = draftStateSchema.parse(JSON.parse(responseBody));
     if (page.id !== target.pageId) {
       throw new Error("Confluence returned an unexpected page identity or status.");
-    }
-    if (page.status === "current") {
-      return null;
     }
     if (page.status !== "draft") {
       throw new Error("Confluence returned an unexpected page identity or status.");

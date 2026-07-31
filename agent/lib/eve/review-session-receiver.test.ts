@@ -39,8 +39,8 @@ describe("createSlackReviewSessionReceiver", () => {
     ]);
 
     assert.deepEqual(sessions, [
-      { sessionId: "session-1" },
-      { sessionId: "session-2" },
+      { sessionId: "session-1", settlement: "waiting" },
+      { sessionId: "session-2", settlement: "waiting" },
     ]);
     assert.deepEqual(requests, [
       {

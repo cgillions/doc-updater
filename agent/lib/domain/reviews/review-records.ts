@@ -203,6 +203,11 @@ export const createConfluenceDraftInputSchema = z.object({
   proposalDigest: digestSchema,
 });
 
+/** Model input for publishing one approved stored Confluence proposal. */
+export const publishConfluencePageUpdateInputSchema = z.object({
+  proposalDigest: digestSchema,
+});
+
 /** Model input for the terminal outcome of the assigned review job. */
 export const completeReviewJobInputSchema = z.object({
   outcome: z.enum([
@@ -263,6 +268,22 @@ export const confluenceDraftCreationResultSchema = z.discriminatedUnion(
   [confluenceDraftRecordSchema, confluenceDraftBlockedRecordSchema],
 );
 
+/** Persisted record for an approval-gated update to an existing page. */
+export const confluencePageUpdateRecordSchema = z.object({
+  proposalDigest: digestSchema,
+  pageId: z.string().regex(/^\d+$/),
+  publishedVersion: z.number().int().positive(),
+  pageUrl: z.url(),
+  historyUrl: z.url(),
+  status: z.literal("published"),
+});
+
+/** Result of attempting an approval-gated Confluence page update. */
+export const confluencePageUpdateResultSchema = z.discriminatedUnion("status", [
+  confluencePageUpdateRecordSchema,
+  confluenceDraftBlockedRecordSchema,
+]);
+
 /** Persisted terminal review result returned to the active session. */
 export const completedReviewJobSchema = completeReviewJobInputSchema.extend({
   reviewJobId: z.uuid(),
@@ -298,6 +319,15 @@ export type ConfluenceDraftBlockedRecord = z.infer<
 >;
 export type ConfluenceDraftCreationResult = z.infer<
   typeof confluenceDraftCreationResultSchema
+>;
+export type PublishConfluencePageUpdateInput = z.infer<
+  typeof publishConfluencePageUpdateInputSchema
+>;
+export type ConfluencePageUpdateRecord = z.infer<
+  typeof confluencePageUpdateRecordSchema
+>;
+export type ConfluencePageUpdateResult = z.infer<
+  typeof confluencePageUpdateResultSchema
 >;
 export type CompleteReviewJobInput = z.infer<
   typeof completeReviewJobInputSchema

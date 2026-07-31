@@ -27,8 +27,9 @@ The dispatched session reads bounded repository content at its immutable SHA
 range, records implementation evidence, and persists a baseline-bound proposal
 when it demonstrates documentation drift. An approved stored repository
 proposal may create one branch, conventional documentation commit, and pull
-request. An approved exact-page Confluence proposal may create one unpublished
-draft; it cannot publish the page.
+request. An approved exact-page Confluence proposal may publish one
+version-guarded update to the existing page and returns its page and version
+history URLs for human diff review.
 
 ## Development
 
@@ -142,23 +143,27 @@ This is the production schedule path. It refreshes GitHub and Roadie before
 creating due jobs, then starts Slack sessions for repositories with a current
 trusted route. Approved repository proposals can create pull requests through
 the application-owned writer. Approved exact-page Confluence proposals can
-create unpublished drafts through a separate writer; neither writer can merge
-or publish.
+publish the exact persisted replacement through a separate, approval-gated
+writer; the repository writer cannot merge and the Confluence writer cannot
+create, move, or delete pages.
 
-Immediately before a Confluence write, the application reads Confluence draft
-metadata as the source of truth. Local draft artifacts are immutable audit
-history, not an active-draft gate. The Confluence API does not provide an
-atomic no-draft precondition, so an external draft created after that read can
-still race the write. Client logic cannot make that narrow window
-non-destructive, so the application does not use stored artifacts to resolve
-the conflict.
+Immediately before a Confluence write, the application reads draft metadata
+with an explicit `status=draft` request. A 404 means there is no real draft.
+the `get-draft=true` response is not used because Confluence can return the
+published body as a synthetic version-1 draft. A real draft blocks the write.
+Published update artifacts are immutable audit history, not an active-draft
+gate. The Confluence API does not provide an atomic no-draft precondition, so
+an external draft created after that read can still race the version-guarded
+update.
 
 ## Confluence API permissions
 
 Create a Confluence service account and an API token with the granular
 `read:page:confluence` and `write:page:confluence` scopes. Grant the service
 account permission to view and update each declared sandbox page and its space.
-The application only writes an approved draft for an existing exact-linked page;
-it has no create, publish, delete, move, permission, or space-management path.
+The application only publishes the exact approved replacement to an existing
+exact-linked page. It has no page-create, delete, move, permission, or
+space-management path. After a successful update, Slack links to Confluence
+version history so engineers can compare the latest two versions.
 
 The token can be configured to expire after at most one year.

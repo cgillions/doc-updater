@@ -74,6 +74,7 @@ model RepositoryRegistry {
   evidenceClaims         EvidenceClaim[]
   changeProposals        ChangeProposal[]
   confluenceDraftArtifacts ConfluenceDraftArtifact[]
+  confluencePageUpdateArtifacts ConfluencePageUpdateArtifact[]
   auditEvents            AuditEvent[]
 
   @@index([isAccessible, isArchived, isPaused, nextReviewAt], map: "repository_registry_scheduling_eligibility_idx")
@@ -135,6 +136,7 @@ model ReviewJob {
   changeProposals      ChangeProposal[]
   confluenceCandidates ReviewJobConfluenceCandidate[]
   confluenceDraftArtifacts ConfluenceDraftArtifact[]
+  confluencePageUpdateArtifacts ConfluencePageUpdateArtifact[]
   auditEvents          AuditEvent[]
 
   @@index([status, availableAt, createdAt])
@@ -218,6 +220,7 @@ model ChangeProposal {
   reviewJob             ReviewJob                @relation(fields: [reviewJobId], references: [id], onDelete: Restrict)
   evidenceLinks         ChangeProposalEvidence[]
   confluenceDraftArtifacts ConfluenceDraftArtifact[]
+  confluencePageUpdateArtifacts ConfluencePageUpdateArtifact[]
 
   @@index([reviewJobId, createdAt])
   @@index([repositoryId, createdAt])
@@ -258,6 +261,30 @@ model ConfluenceDraftArtifact {
   @@index([repositoryId, createdAt])
   @@index([reviewJobId, createdAt])
   @@map("confluence_draft_artifacts")
+}
+
+model ConfluencePageUpdateArtifact {
+  id               String             @id @default(uuid()) @db.Uuid
+  repositoryId     String             @map("repository_id") @db.Uuid
+  reviewJobId      String             @map("review_job_id") @db.Uuid
+  changeProposalId String             @unique @map("change_proposal_id") @db.Uuid
+  proposalDigest   String             @unique @map("proposal_digest")
+  siteId           String             @map("site_id")
+  pageId           String             @map("page_id")
+  baselineVersion  Int                @map("baseline_version")
+  baselineBodyHash String             @map("baseline_body_hash")
+  publishedVersion Int                @map("published_version")
+  pageUrl          String             @map("page_url")
+  historyUrl       String             @map("history_url")
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  repository       RepositoryRegistry @relation(fields: [repositoryId], references: [id], onDelete: Restrict)
+  reviewJob        ReviewJob          @relation(fields: [reviewJobId], references: [id], onDelete: Restrict)
+  changeProposal   ChangeProposal     @relation(fields: [changeProposalId], references: [id], onDelete: Restrict)
+
+  @@index([siteId, pageId, createdAt])
+  @@index([repositoryId, createdAt])
+  @@index([reviewJobId, createdAt])
+  @@map("confluence_page_update_artifacts")
 }
 
 model AuditEvent {

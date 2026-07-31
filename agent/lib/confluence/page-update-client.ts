@@ -1,49 +1,39 @@
 import { z } from "zod";
 
+import type { ConfluencePageUpdater } from "../application/documentation/publish-confluence-page-update.ts";
 import { loadConfluenceClientConfig } from "../config/confluence-client-config.ts";
 import type { ConfluencePage } from "../domain/documentation/confluence-page.ts";
-import type { ConfluenceDraftCreator } from "../application/documentation/create-confluence-draft.ts";
 
-const tenantSchema = z.object({
-  cloudId: z.uuid(),
-});
-
-const draftResponseSchema = z.object({
+const tenantSchema = z.object({ cloudId: z.uuid() });
+const updateResponseSchema = z.object({
   id: z.string().regex(/^\d+$/),
-  status: z.string().min(1),
-  version: z.object({
-    number: z.number().int().positive(),
-  }),
+  status: z.literal("current"),
+  version: z.object({ number: z.number().int().positive() }),
+  _links: z.object({ webui: z.string().min(1) }),
 });
 
-export interface ConfluenceDraftClientOptions {
+export interface ConfluencePageUpdateClientOptions {
   apiToken: string;
   fetch?: typeof fetch;
 }
 
-/** Raised when Confluence rejects the narrowly scoped draft update. */
-export class ConfluenceDraftRequestError extends Error {
+export class ConfluencePageUpdateRequestError extends Error {
   readonly status: number;
 
   constructor(status: number) {
-    super(`Confluence draft request failed with status ${status}.`);
-    this.name = "ConfluenceDraftRequestError";
+    super(`Confluence page update failed with status ${status}.`);
+    this.name = "ConfluencePageUpdateRequestError";
     this.status = status;
   }
 }
 
-/**
- * Writes one existing page as an unpublished Confluence storage-format draft.
- *
- * This client intentionally has no create, publish, delete, move, permission,
- * or space-management operation.
- */
-export class ConfluenceDraftClient implements ConfluenceDraftCreator {
+/** Publishes one exact, version-guarded update to an existing Confluence page. */
+export class ConfluencePageUpdateClient implements ConfluencePageUpdater {
   private readonly authorization: string;
   private readonly cloudIds = new Map<string, Promise<string>>();
   private readonly fetch: typeof fetch;
 
-  constructor(options: ConfluenceDraftClientOptions) {
+  constructor(options: ConfluencePageUpdateClientOptions) {
     if (!options.apiToken.trim()) {
       throw new Error("A Confluence API token is required.");
     }
@@ -51,14 +41,10 @@ export class ConfluenceDraftClient implements ConfluenceDraftCreator {
     this.fetch = options.fetch ?? globalThis.fetch;
   }
 
-  async createDraft(
-    input: Parameters<ConfluenceDraftCreator["createDraft"]>[0],
-  ): Promise<{
-    draftPageId: string;
-    draftVersion: number;
-    status: "draft";
-  }> {
-    validateDraftInput(input);
+  async updatePage(
+    input: Parameters<ConfluencePageUpdater["updatePage"]>[0],
+  ): Promise<Awaited<ReturnType<ConfluencePageUpdater["updatePage"]>>> {
+    validateInput(input);
     const cloudId = await this.resolveCloudId(input.page.siteId);
     const response = await this.fetch(
       new URL(
@@ -74,7 +60,7 @@ export class ConfluenceDraftClient implements ConfluenceDraftCreator {
         },
         body: JSON.stringify({
           id: input.page.pageId,
-          status: "draft",
+          status: "current",
           title: input.page.title,
           spaceId: input.page.spaceId,
           parentId: input.page.parentId,
@@ -91,18 +77,22 @@ export class ConfluenceDraftClient implements ConfluenceDraftCreator {
       },
     );
     if (!response.ok) {
-      throw new ConfluenceDraftRequestError(response.status);
+      throw new ConfluencePageUpdateRequestError(response.status);
     }
-    const draft = draftResponseSchema.parse(await response.json());
-    if (draft.id !== input.page.pageId || draft.status !== "draft") {
-      throw new Error(
-        "Confluence did not return an unpublished draft for the expected page.",
-      );
+    const updated = updateResponseSchema.parse(await response.json());
+    if (
+      updated.id !== input.page.pageId ||
+      updated.version.number !== input.page.version + 1
+    ) {
+      throw new Error("Confluence did not update the expected page version.");
     }
+    const pageUrl = buildPageUrl(input.page.siteId, updated._links.webui);
     return {
-      draftPageId: draft.id,
-      draftVersion: draft.version.number,
-      status: "draft",
+      pageId: updated.id,
+      publishedVersion: updated.version.number,
+      status: "published",
+      pageUrl,
+      historyUrl: buildHistoryUrl(pageUrl, updated.id),
     };
   }
 
@@ -125,18 +115,38 @@ export class ConfluenceDraftClient implements ConfluenceDraftCreator {
       },
     );
     if (!response.ok) {
-      throw new ConfluenceDraftRequestError(response.status);
+      throw new ConfluencePageUpdateRequestError(response.status);
     }
     return tenantSchema.parse(await response.json()).cloudId;
   }
 }
 
-/** Creates the trusted draft writer; model-visible tools never receive it. */
-export function createConfluenceDraftClient(): ConfluenceDraftClient {
-  return new ConfluenceDraftClient(loadConfluenceClientConfig());
+export function createConfluencePageUpdateClient(): ConfluencePageUpdateClient {
+  return new ConfluencePageUpdateClient(loadConfluenceClientConfig());
 }
 
-function validateDraftInput(input: {
+function buildPageUrl(siteId: string, webui: string): string {
+  const path = webui.startsWith("/wiki/")
+    ? webui
+    : `/wiki/${webui.replace(/^\/+/, "")}`;
+  const pageUrl = new URL(path, `https://${siteId}`);
+  if (pageUrl.hostname !== siteId) {
+    throw new Error("Confluence returned an invalid page URL.");
+  }
+  return pageUrl.toString();
+}
+
+function buildHistoryUrl(pageUrl: string, pageId: string): string {
+  const url = new URL(pageUrl);
+  const marker = `/pages/${pageId}`;
+  if (!url.pathname.includes(marker)) {
+    throw new Error("Confluence returned a page URL without the expected page.");
+  }
+  url.pathname = url.pathname.replace(marker, `/history/${pageId}`);
+  return url.toString();
+}
+
+function validateInput(input: {
   page: ConfluencePage;
   bodyStorageValue: string;
   auditMessage: string;
@@ -156,6 +166,6 @@ function validateDraftInput(input: {
     !input.auditMessage ||
     input.auditMessage.length > 255
   ) {
-    throw new Error("Confluence draft input is invalid.");
+    throw new Error("Confluence page update input is invalid.");
   }
 }

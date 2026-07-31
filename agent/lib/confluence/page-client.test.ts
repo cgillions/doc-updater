@@ -153,11 +153,11 @@ describe("ConfluencePageClient", () => {
     assert.deepEqual(requests, [
       "https://example.atlassian.net/_edge/tenant_info",
       `https://api.atlassian.com/ex/confluence/${CLOUD_ID}` +
-        "/wiki/api/v2/pages/12345?get-draft=true",
+        "/wiki/api/v2/pages/12345?status=draft",
     ]);
   });
 
-  it("reports no draft only when Confluence returns the current page", async () => {
+  it("reports no draft when the explicit draft lookup returns 404", async () => {
     let requests = 0;
     const client = new ConfluencePageClient({
       apiToken: "secret",
@@ -165,11 +165,7 @@ describe("ConfluencePageClient", () => {
         requests += 1;
         return requests === 1
           ? Response.json({ cloudId: CLOUD_ID })
-          : Response.json({
-              id: "12345",
-              status: "current",
-              version: { number: 7 },
-            });
+          : new Response(null, { status: 404 });
       },
     });
 

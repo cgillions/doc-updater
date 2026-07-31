@@ -1,5 +1,5 @@
 ---
-description: Use after exact-page Confluence drift has been recorded to prepare a minimal native-storage replacement and handle the draft result safely.
+description: Use after exact-page Confluence drift has been recorded to prepare a minimal native-storage replacement and handle the approval-gated publication result safely.
 ---
 
 # Confluence Change Proposal
@@ -17,8 +17,8 @@ been persisted in the current session.
 5. Verify the proposal using the checklist below.
 6. Call `create_confluence_change_proposal` with the exact baseline fragment,
    replacement, and supporting evidence claim IDs.
-7. Return to the core workflow with the proposal digest. Do not publish a page
-   or create any other Confluence artefact.
+7. Return to the core workflow with the proposal digest. Only the core
+   workflow may request the approval-gated page update.
 
 ## Verification
 
@@ -35,10 +35,14 @@ Before creating the proposal, verify all of the following in the same session:
 
 If any check fails, do not create a proposal; record `incomplete`.
 
-## Draft result
+## Publication result
 
-If `create_confluence_draft` returns `blocked-existing-draft`, Confluence
+If `publish_confluence_page_update` returns `blocked-existing-draft`, Confluence
 reported that the page already has a draft. Stored artifact history does not
-decide this outcome. Do not retry the draft or make another Confluence write.
+decide this outcome. Do not retry or make another Confluence write.
 The proposal remains valid: complete the job with `proposal-created`, then use
 the existing-draft report from `slack-communication`.
+
+If it returns `published`, complete the job with `proposal-created`, then use
+the published Confluence update report from `slack-communication`. Copy the
+returned `pageUrl` and `historyUrl` exactly; do not construct or alter them.

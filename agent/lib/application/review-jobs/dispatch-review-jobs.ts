@@ -51,7 +51,10 @@ export interface ReviewSessionReceiver {
   start(input: {
     reviewJobId: string;
     slackChannelId: string;
-  }): Promise<{ sessionId: string }>;
+  }): Promise<{
+    sessionId: string;
+    settlement: "waiting" | "completed";
+  }>;
 }
 
 /** Independent controls for queue claims and active sessions. */
@@ -71,6 +74,7 @@ export interface ReviewJobDispatchResult {
   recoveredLeaseCount: number;
   claimedCount: number;
   completedCount: number;
+  waitingCount: number;
   failedCount: number;
   sessionIds: string[];
 }
@@ -187,8 +191,11 @@ export class ReviewJobDispatcher {
       candidateCount: enqueueResult.candidateCount,
       recoveredLeaseCount: recovered.length,
       claimedCount: jobs.length,
-      completedCount: outcomes.filter(({ completed }) => completed).length,
-      failedCount: outcomes.filter(({ completed }) => !completed).length,
+      completedCount: outcomes.filter(({ status }) => status === "completed")
+        .length,
+      waitingCount: outcomes.filter(({ status }) => status === "waiting")
+        .length,
+      failedCount: outcomes.filter(({ status }) => status === "failed").length,
       sessionIds: outcomes.flatMap(({ sessionId }) =>
         sessionId ? [sessionId] : [],
       ),
@@ -231,7 +238,10 @@ export class ReviewJobDispatcher {
   private async dispatchJob(
     job: DispatchableReviewJob,
     slackChannelId: string | undefined,
-  ): Promise<{ completed: boolean; sessionId?: string }> {
+  ): Promise<{
+    status: "completed" | "waiting" | "failed";
+    sessionId?: string;
+  }> {
     if (!slackChannelId) {
       this.logger.warn("review job has no Slack route", {
         jobId: job.id,
@@ -242,7 +252,7 @@ export class ReviewJobDispatcher {
         "SLACK_ROUTE_UNAVAILABLE",
         "The claimed repository no longer has a trusted Slack route.",
       );
-      return { completed: false };
+      return { status: "failed" };
     }
 
     try {
@@ -255,7 +265,19 @@ export class ReviewJobDispatcher {
         reviewJobId: job.id,
         slackChannelId,
       });
-      if (!(await this.queue.hasRecordedOutcome(job.id, job.leaseToken))) {
+      const hasRecordedOutcome = await this.queue.hasRecordedOutcome(
+        job.id,
+        job.leaseToken,
+      );
+      if (!hasRecordedOutcome && session.settlement === "waiting") {
+        this.logger.info("review session is waiting for approval", {
+          jobId: job.id,
+          repositoryId: job.repositoryId,
+          sessionId: session.sessionId,
+        });
+        return { status: "waiting", sessionId: session.sessionId };
+      }
+      if (!hasRecordedOutcome) {
         throw new Error(
           "The review session settled without recording a terminal outcome.",
         );
@@ -265,7 +287,7 @@ export class ReviewJobDispatcher {
         repositoryId: job.repositoryId,
         sessionId: session.sessionId,
       });
-      return { completed: true, sessionId: session.sessionId };
+      return { status: "completed", sessionId: session.sessionId };
     } catch (error) {
       this.logger.warn("review session failed", {
         jobId: job.id,
@@ -277,7 +299,7 @@ export class ReviewJobDispatcher {
         "REVIEW_SESSION_FAILED",
         errorMessage(error),
       );
-      return { completed: false };
+      return { status: "failed" };
     }
   }
 

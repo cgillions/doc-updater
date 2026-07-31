@@ -1,23 +1,20 @@
+import type { ConfluencePageUpdateArtifactStore } from "../../database/confluence-page-update-store.ts";
+import type { ConfluenceDraftProposal } from "../../database/confluence-draft-store.ts";
 import {
   hashConfluenceBody,
   type ConfluencePage,
 } from "../../domain/documentation/confluence-page.ts";
 import {
-  createConfluenceDraftInputSchema,
-  type ConfluenceDraftCreationResult,
-  type CreateConfluenceDraftInput,
+  publishConfluencePageUpdateInputSchema,
+  type ConfluencePageUpdateResult,
+  type PublishConfluencePageUpdateInput,
 } from "../../domain/reviews/review-records.ts";
 import { ReviewRecordConflictError } from "../../domain/reviews/errors.ts";
-import type {
-  ConfluenceDraftArtifactStore,
-  ConfluenceDraftProposal,
-} from "../../database/confluence-draft-store.ts";
 import {
   resolveAssignedReviewJobId,
   type ReviewSessionAuth,
 } from "../review-jobs/load-assigned-review-job.ts";
 
-/** Reads trusted current content and Confluence draft state for one page. */
 export interface ConfluencePageReader {
   getPage(target: { siteId: string; pageId: string }): Promise<ConfluencePage>;
   getDraftState(target: { siteId: string; pageId: string }): Promise<{
@@ -26,61 +23,52 @@ export interface ConfluencePageReader {
   } | null>;
 }
 
-/** Narrow write boundary that can only update one existing page as a draft. */
-export interface ConfluenceDraftCreator {
-  createDraft(input: {
+export interface ConfluencePageUpdater {
+  updatePage(input: {
     page: ConfluencePage;
     bodyStorageValue: string;
     auditMessage: string;
   }): Promise<{
-    draftPageId: string;
-    draftVersion: number;
-    status: "draft";
+    pageId: string;
+    publishedVersion: number;
+    pageUrl: string;
+    historyUrl: string;
+    status: "published";
   }>;
 }
 
-/** Raised when no trusted proposal belongs to the assigned review job. */
-export class ConfluenceDraftUnavailableError extends Error {
+export class ConfluencePageUpdateUnavailableError extends Error {
   constructor(proposalDigest: string) {
     super(
       `Confluence proposal ${JSON.stringify(proposalDigest)} is unavailable ` +
         "for the assigned review job.",
     );
-    this.name = "ConfluenceDraftUnavailableError";
+    this.name = "ConfluencePageUpdateUnavailableError";
   }
 }
 
-/** Raised when the current page no longer matches the proposal baseline. */
-export class ConfluenceDraftStalePageError extends Error {
+export class ConfluencePageUpdateStalePageError extends Error {
   constructor(proposal: ConfluenceDraftProposal, current: ConfluencePage) {
     super(
       `Confluence page ${proposal.target.siteId}/${proposal.target.pageId} ` +
         `changed from version ${proposal.target.version} to ${current.version}.`,
     );
-    this.name = "ConfluenceDraftStalePageError";
+    this.name = "ConfluencePageUpdateStalePageError";
   }
 }
 
-/**
- * Creates one approved, unpublished draft from a trusted exact-page proposal.
- *
- * The writer receives only persisted coordinates and a reconstructed native
- * page body; it never accepts model-authored page or publication inputs.
- */
-export async function createAssignedConfluenceDraft(
+/** Publishes the exact persisted proposal after Eve's approval gate succeeds. */
+export async function publishAssignedConfluencePageUpdate(
   auth: ReviewSessionAuth,
-  input: CreateConfluenceDraftInput,
+  input: PublishConfluencePageUpdateInput,
   dependencies: {
-    store: ConfluenceDraftArtifactStore;
+    store: ConfluencePageUpdateArtifactStore;
     pages: ConfluencePageReader;
-    drafts: ConfluenceDraftCreator;
-    audit?: {
-      sessionId: string;
-      toolCallId: string;
-    };
+    updater: ConfluencePageUpdater;
+    audit?: { sessionId: string; toolCallId: string };
   },
-): Promise<ConfluenceDraftCreationResult> {
-  const parsed = createConfluenceDraftInputSchema.parse(input);
+): Promise<ConfluencePageUpdateResult> {
+  const parsed = publishConfluencePageUpdateInputSchema.parse(input);
   const reviewJobId = resolveAssignedReviewJobId(auth);
   const proposal = await dependencies.store.loadProposal(
     reviewJobId,
@@ -91,19 +79,15 @@ export async function createAssignedConfluenceDraft(
     proposal.reviewJobId !== reviewJobId ||
     proposal.digest !== parsed.proposalDigest
   ) {
-    throw new ConfluenceDraftUnavailableError(parsed.proposalDigest);
+    throw new ConfluencePageUpdateUnavailableError(parsed.proposalDigest);
   }
 
   return dependencies.store.withPageLock(proposal.target, async () => {
-    // Confluence has no atomic "create only when no draft exists" operation.
-    // Source: https://developer.atlassian.com/cloud/confluence/rest/v2/api-group-page/
-    const existingPageDraft = await dependencies.pages.getDraftState(
-      proposal.target,
-    );
-    if (existingPageDraft) {
+    const existingDraft = await dependencies.pages.getDraftState(proposal.target);
+    if (existingDraft) {
       return dependencies.store.recordBlockedByExistingDraft({
         proposal,
-        existingDraftVersion: existingPageDraft.version,
+        existingDraftVersion: existingDraft.version,
         actorId: auth.current?.principalId,
         sessionId: dependencies.audit?.sessionId,
         toolCallId: dependencies.audit?.toolCallId,
@@ -112,23 +96,25 @@ export async function createAssignedConfluenceDraft(
 
     const current = await dependencies.pages.getPage(proposal.target);
     if (!matchesBaseline(proposal, current)) {
-      throw new ConfluenceDraftStalePageError(proposal, current);
+      throw new ConfluencePageUpdateStalePageError(proposal, current);
     }
-    const bodyStorageValue = replaceExactFragment(proposal, current);
-    const draft = await dependencies.drafts.createDraft({
+    const published = await dependencies.updater.updatePage({
       page: current,
-      bodyStorageValue,
+      bodyStorageValue: replaceExactFragment(proposal, current),
       auditMessage: buildAuditMessage(proposal),
     });
-    if (draft.status !== "draft" || draft.draftPageId !== current.pageId) {
+    if (
+      published.status !== "published" ||
+      published.pageId !== current.pageId ||
+      published.publishedVersion !== current.version + 1
+    ) {
       throw new ReviewRecordConflictError(
-        "Confluence did not return an unpublished draft for the expected page.",
+        "Confluence did not publish the expected page version.",
       );
     }
-    return dependencies.store.recordCreated({
+    return dependencies.store.recordPublished({
       proposal,
-      draftPageId: draft.draftPageId,
-      draftVersion: draft.draftVersion,
+      ...published,
       actorId: auth.current?.principalId,
       sessionId: dependencies.audit?.sessionId,
       toolCallId: dependencies.audit?.toolCallId,
@@ -160,10 +146,7 @@ function replaceExactFragment(
     );
   }
   const firstMatch = page.bodyStorageValue.indexOf(baseline);
-  const secondMatch = page.bodyStorageValue.indexOf(
-    baseline,
-    firstMatch + 1,
-  );
+  const secondMatch = page.bodyStorageValue.indexOf(baseline, firstMatch + 1);
   if (firstMatch < 0 || secondMatch >= 0) {
     throw new ReviewRecordConflictError(
       "Confluence proposal baseline fragment is no longer uniquely present.",
@@ -177,8 +160,5 @@ function replaceExactFragment(
 }
 
 function buildAuditMessage(proposal: ConfluenceDraftProposal): string {
-  return (
-    `Documentation proposal ${proposal.digest} for review ${proposal.reviewJobId} ` +
-    `at source ${proposal.implementationSha}.`
-  );
+  return `Approved documentation proposal ${proposal.digest}.`;
 }

@@ -58,7 +58,10 @@ describe("ReviewJobDispatcher", () => {
         ],
       },
       receiver: {
-        start: async () => ({ sessionId: "session-1" }),
+        start: async () => ({
+          sessionId: "session-1",
+          settlement: "completed",
+        }),
       },
       config: dispatcherConfig(),
       createId: idSequence("claim-id", "worker-id"),
@@ -124,7 +127,10 @@ describe("ReviewJobDispatcher", () => {
           if (reviewJobId === "job-2") {
             throw new Error("Session failed.");
           }
-          return { sessionId: `session-${reviewJobId}` };
+          return {
+            sessionId: `session-${reviewJobId}`,
+            settlement: "completed",
+          };
         },
       },
       config: dispatcherConfig({ claimLimit: 5, concurrencyLimit: 2 }),
@@ -145,6 +151,7 @@ describe("ReviewJobDispatcher", () => {
       recoveredLeaseCount: 1,
       claimedCount: 3,
       completedCount: 2,
+      waitingCount: 0,
       failedCount: 1,
       sessionIds: ["session-job-1", "session-job-3"],
     });
@@ -194,7 +201,10 @@ describe("ReviewJobDispatcher", () => {
             releaseSessionStart();
           }
           await sessionStarted;
-          return { sessionId: `session-${reviewJobId}` };
+          return {
+            sessionId: `session-${reviewJobId}`,
+            settlement: "completed",
+          };
         },
       },
       config: dispatcherConfig({ claimLimit: 4, concurrencyLimit: 2 }),
@@ -253,6 +263,7 @@ describe("ReviewJobDispatcher", () => {
       receiver: {
         start: async ({ reviewJobId }) => ({
           sessionId: `session-${reviewJobId}`,
+          settlement: "completed",
         }),
       },
       config: dispatcherConfig(),
@@ -302,7 +313,10 @@ describe("ReviewJobDispatcher", () => {
         ],
       },
       receiver: {
-        start: async () => ({ sessionId: "session-1" }),
+        start: async () => ({
+          sessionId: "session-1",
+          settlement: "completed",
+        }),
       },
       config: dispatcherConfig(),
       createId: idSequence("claim-id", "worker-id"),
@@ -370,7 +384,10 @@ describe("ReviewJobDispatcher", () => {
         ],
       },
       receiver: {
-        start: async () => ({ sessionId: "session-1" }),
+        start: async () => ({
+          sessionId: "session-1",
+          settlement: "completed",
+        }),
       },
       config: dispatcherConfig(),
       createId: idSequence("claim-id", "worker-id"),
@@ -388,6 +405,53 @@ describe("ReviewJobDispatcher", () => {
           "The review session settled without recording a terminal outcome.",
       },
     ]);
+  });
+
+  it("keeps an approval-waiting session leased without failing the job", async () => {
+    const job = claimedJob("job-1", "repository-1");
+    const failures: string[] = [];
+    const dispatcher = new ReviewJobDispatcher({
+      enqueuer: {
+        enqueue: async () => ({ candidateCount: 1, jobIds: [job.id] }),
+      },
+      queue: {
+        async recoverExpiredLeases() {
+          return [];
+        },
+        async claimDue() {
+          return [job];
+        },
+        async hasRecordedOutcome() {
+          return false;
+        },
+        async fail(input) {
+          failures.push(input.jobId);
+          return {};
+        },
+      },
+      routes: {
+        loadDispatchRoutes: async () => [
+          { reviewJobId: job.id, slackChannelId: "C0123456789" },
+        ],
+      },
+      receiver: {
+        start: async () => ({
+          sessionId: "session-1",
+          settlement: "waiting",
+        }),
+      },
+      config: dispatcherConfig(),
+      createId: idSequence("claim-id", "worker-id"),
+      clock: () => NOW,
+    });
+
+    const result = await dispatcher.dispatch();
+
+    assert.equal(result.completedCount, 0);
+    assert.equal(result.waitingCount, 1);
+    assert.equal(result.failedCount, 0);
+    assert.deepEqual(result.sessionIds, ["session-1"]);
+    assert.deepEqual(failures, []);
   });
 });
 

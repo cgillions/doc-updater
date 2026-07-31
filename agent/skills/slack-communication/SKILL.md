@@ -58,12 +58,12 @@ For very small updates, keep the same order but collapse to one short paragraph.
 ## Approval Context
 
 Immediately before an approval-gated repository pull request or Confluence
-draft call, emit this exact envelope and request the gated tool in the same
+page update, emit this exact envelope and request the gated tool in the same
 assistant step:
 
 ```text
 <slack_approval_context>
-Hey team, I found a docs update that needs approval :speech_bubble:
+Hey team, I found a docs update that needs approval 💬
 
 Summary of change:
 <one short sentence explaining what will be created and why>
@@ -73,21 +73,21 @@ Evidence checked:
 - <one evidence-backed documentation point>
 - <optional narrowness or safety point>
 
-I need approval to create a [pull request | draft]. Please review the approval request in this thread.
+I need approval to create a [pull request | publish this page update]. Please review the approval request in this thread.
 </slack_approval_context>
 ```
 
 The envelope tags are an internal delivery marker. The Slack channel removes
 them before posting. Never emit this envelope as a standalone terminal
 response: it must accompany `create_repository_pull_request` or
-`create_confluence_draft` in the same assistant step.
+`publish_confluence_page_update` in the same assistant step.
 
 ## Outcome Patterns
 
 ### Documentation Drift Found
 
 ```text
-Hey team, I spotted something that needs to be updated :eyes:
+Hey team, I spotted something that needs to be updated 👀
 
 Repo: <repo-url|repo-name>
 Status: The implementation changed, and the docs no longer match it.
@@ -119,7 +119,7 @@ No action needed.
 ### Needs Human Input
 
 ```text
-Hey team, I need a quick decision before this docs update can move forward :speech_bubble:
+Hey team, I need a quick decision before this docs update can move forward 💬
 
 Repo: <repo-url|repo-name>
 Status: I found a docs update, but it needs review before publishing.
@@ -135,7 +135,7 @@ Please approve or reject the proposed docs update.
 ### Incomplete Review
 
 ```text
-Hey team, I could not safely finish this docs check :eyes:
+Hey team, I could not safely finish this docs check 👀
 
 Repo: <repo-url|repo-name>
 Status: I did not have enough evidence to decide whether the docs are still accurate.
@@ -151,7 +151,7 @@ Someone should review the docs manually before relying on them.
 ### Existing Confluence Draft
 
 ```text
-Hey team, I found a docs update that needs a decision :speech_bubble:
+Hey team, I found a docs update that needs a decision 💬
 
 Repo: <repo-url|repo-name>
 Page: <page-url|page-name>
@@ -163,6 +163,25 @@ What I checked:
 
 Next step:
 Please reconcile the existing draft with this proposed change. No new draft was created, so existing work is preserved.
+```
+
+### Published Confluence Update
+
+```text
+Hey team, the approved Confluence update is now published ✅
+
+Repo: <repo-url|repo-name>
+Page: <pageUrl|page-name>
+Status: Version <publishedVersion> contains the approved documentation update.
+
+What changed:
+- <one concise evidence-backed summary of the published correction>
+
+Review:
+<historyUrl|Open version history to review the diff>
+
+Next step:
+Please compare the latest two versions in Confluence and raise any follow-up in this thread.
 ```
 
 ## Final Check Before Sending

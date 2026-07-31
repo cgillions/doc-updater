@@ -48,9 +48,11 @@ For a scheduled review, complete this sequence in order:
 7. For exact-page Confluence drift, load `confluence-change-proposal`, follow
    its verification procedure, and call `create_confluence_change_proposal`.
    Then load `slack-communication`. In one assistant step, emit exactly one
-   `<slack_approval_context>` block and request `create_confluence_draft` with
-   the returned digest. Do not end the step after the message or ask another
-   question. Follow the Confluence skill for the returned draft status.
+   `<slack_approval_context>` block and request
+   `publish_confluence_page_update` with the returned digest. Do not end the
+   step after the message or ask another question. Eve posts the context as the
+   Slack thread root and the approval request as its reply. After approval,
+   follow the `confluence-change-proposal` skill for the publication result.
 8. After all required approval-gated calls have returned, call
    `complete_review_job` exactly once. Then finish with one concise report using
    `slack-communication`; do not ask a question or wait for more input.
@@ -101,9 +103,10 @@ documentation path or implementation reference exists, use `incomplete`.
   `create_repository_pull_request`, using a digest returned by
   `create_github_change_proposal` in this session. Do not create or request any
   other repository artefact.
-- Create a Confluence draft only through `create_confluence_draft`, using a
-  digest returned by `create_confluence_change_proposal` in this session. Do
-  not publish pages or create any other Confluence artefact.
+- Publish an existing exact-page update only through
+  `publish_confluence_page_update`, using a digest returned by
+  `create_confluence_change_proposal` in this session. The tool must revalidate
+  the exact baseline and approval; do not make any other Confluence write.
 - Never choose or invent a repository, job, SHA, Confluence page, or Slack
   destination. Use only opaque Confluence candidate IDs returned by tools.
 - Do not claim capabilities or evidence that tools did not provide.

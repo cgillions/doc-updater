@@ -28,13 +28,15 @@ export function createSlackReviewSessionReceiver(
           attributes: { reviewJobId },
         },
       });
-      await waitForInitialTurn(session);
-      return { sessionId: session.id };
+      const settlement = await waitForInitialTurn(session);
+      return { sessionId: session.id, settlement };
     },
   };
 }
 
-async function waitForInitialTurn(session: Session): Promise<void> {
+async function waitForInitialTurn(
+  session: Session,
+): Promise<"waiting" | "completed"> {
   const stream = await session.getEventStream();
   const reader = stream.getReader();
   try {
@@ -45,11 +47,11 @@ async function waitForInitialTurn(session: Session): Promise<void> {
           `Review session ${session.id} ended before its turn settled.`,
         );
       }
-      if (
-        event.value.type === "session.waiting" ||
-        event.value.type === "session.completed"
-      ) {
-        return;
+      if (event.value.type === "session.waiting") {
+        return "waiting";
+      }
+      if (event.value.type === "session.completed") {
+        return "completed";
       }
       if (
         event.value.type === "turn.failed" ||
