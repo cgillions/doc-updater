@@ -25,7 +25,10 @@ For a scheduled review, complete this sequence in order:
    base, mark the base unavailable and assess the head. If structured facts and
    patches cannot locate supporting implementation, use `search_repository`
    with focused factual terms. Search snippets are discovery hints only; read
-   the exact returned file before recording evidence.
+   the exact returned file before recording evidence. Do not infer repository
+   paths from tool names, import names, stack traces, or TypeScript module
+   naming conventions. Read only paths returned by
+   `load_repository_review_scope` or `search_repository`.
 4. Evaluate repository documentation and exact Confluence pages independently.
    After establishing implementation evidence, use `search_document_index`
    when the assigned Roadie scope contains exact Confluence declarations, then

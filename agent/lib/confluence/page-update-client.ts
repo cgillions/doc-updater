@@ -20,11 +20,13 @@ export interface ConfluencePageUpdateClientOptions {
 
 export class ConfluencePageUpdateRequestError extends Error {
   readonly status: number;
+  readonly responseBody: string;
 
-  constructor(status: number) {
-    super(`Confluence page update failed with status ${status}.`);
+  constructor(status: number, responseBody: string) {
+    super(buildRequestErrorMessage(status, responseBody));
     this.name = "ConfluencePageUpdateRequestError";
     this.status = status;
+    this.responseBody = responseBody;
   }
 }
 
@@ -84,7 +86,10 @@ export class ConfluencePageUpdateClient implements ConfluencePageUpdater {
       },
     );
     if (!response.ok) {
-      throw new ConfluencePageUpdateRequestError(response.status);
+      throw new ConfluencePageUpdateRequestError(
+        response.status,
+        await readErrorBody(response),
+      );
     }
     const updated = updateResponseSchema.parse(await response.json());
     if (
@@ -122,7 +127,10 @@ export class ConfluencePageUpdateClient implements ConfluencePageUpdater {
       },
     );
     if (!response.ok) {
-      throw new ConfluencePageUpdateRequestError(response.status);
+      throw new ConfluencePageUpdateRequestError(
+        response.status,
+        await readErrorBody(response),
+      );
     }
     return tenantSchema.parse(await response.json()).cloudId;
   }
@@ -134,6 +142,25 @@ export function createConfluencePageUpdateClient(): ConfluencePageUpdateClient {
 
 function buildBasicAuthorization(apiEmail: string, apiToken: string): string {
   return `Basic ${Buffer.from(`${apiEmail}:${apiToken}`).toString("base64")}`;
+}
+
+async function readErrorBody(response: Response): Promise<string> {
+  const body = await response.text();
+  return body.length > 1_000 ? `${body.slice(0, 1_000)}...` : body;
+}
+
+function buildRequestErrorMessage(status: number, responseBody: string): string {
+  const body = responseBody.trim();
+  const suffix =
+    status === 401
+      ? " Check that the scoped API token includes write:page:confluence " +
+        "and that the service account has update permission for the page's space."
+      : "";
+  return (
+    `Confluence page update failed with status ${status}.` +
+    (body ? ` Response body: ${body}` : "") +
+    suffix
+  );
 }
 
 function buildPageUrl(siteId: string, webui: string): string {

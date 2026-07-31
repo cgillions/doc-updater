@@ -100,6 +100,31 @@ describe("ConfluencePageUpdateClient", () => {
         error.status === 409,
     );
   });
+
+  it("explains Confluence write authorisation failures without exposing credentials", async () => {
+    const client = new ConfluencePageUpdateClient({
+      apiEmail: "service@example.com",
+      apiToken: "secret",
+      fetch: tenantThen(
+        () =>
+          new Response(JSON.stringify({ message: "Unauthorized" }), {
+            status: 401,
+          }),
+      ),
+    });
+
+    await assert.rejects(
+      client.updatePage(request()),
+      (error: unknown) =>
+        error instanceof ConfluencePageUpdateRequestError &&
+        error.status === 401 &&
+        error.responseBody === '{"message":"Unauthorized"}' &&
+        error.message.includes("write:page:confluence") &&
+        error.message.includes("update permission") &&
+        !error.message.includes(BASIC_AUTH) &&
+        !error.message.includes("secret"),
+    );
+  });
 });
 
 function request() {
